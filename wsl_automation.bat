@@ -10,6 +10,7 @@ set "INSTALL_PATH="
 set "TARGET_LTS="
 set "SKIP_PRE_UPGRADE_BACKUP=0"
 set "AUTO_PAUSE=1"
+set "DEBUG=0"
 set "HELP_ONLY=0"
 set "RET=0"
 
@@ -81,6 +82,11 @@ if /I "%~1"=="--no-pause" (
     shift
     goto parse_args
 )
+if /I "%~1"=="--debug" (
+    set "DEBUG=1"
+    shift
+    goto parse_args
+)
 if /I "%~1"=="--help" (
     set "HELP_ONLY=1"
     goto show_help
@@ -96,6 +102,16 @@ goto show_help
 
 :args_done
 if not defined ACTION set "ACTION=menu"
+call :DebugKV "ACTION" "%ACTION%"
+call :DebugKV "DISTRO" "%DISTRO%"
+call :DebugKV "BACKUP_DIR" "%BACKUP_DIR%"
+call :DebugKV "BACKUP_FILE" "%BACKUP_FILE%"
+call :DebugKV "RESTORE_AS" "%RESTORE_AS%"
+call :DebugKV "INSTALL_PATH" "%INSTALL_PATH%"
+call :DebugKV "TARGET_LTS" "%TARGET_LTS%"
+call :DebugKV "SKIP_PRE_UPGRADE_BACKUP" "%SKIP_PRE_UPGRADE_BACKUP%"
+call :DebugKV "AUTO_PAUSE" "%AUTO_PAUSE%"
+call :DebugKV "DEBUG" "%DEBUG%"
 
 where wsl.exe >nul 2>nul
 if errorlevel 1 (
@@ -150,12 +166,14 @@ echo   --install-path ^<path used by wsl --import^>
 echo   --target-lts ^<20.04^|22.04^|24.04...^>
 echo   --skip-pre-upgrade-backup
 echo   --no-pause
+echo   --debug
 echo.
 echo Examples:
 echo   wsl_automation.bat
 echo   wsl_automation.bat backup --distro Ubuntu --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
+echo   wsl_automation.bat backup --debug
 if "%HELP_ONLY%"=="1" (
     set "RET=0"
 ) else (
@@ -180,6 +198,16 @@ if "%AUTO_PAUSE%"=="1" (
     pause
 )
 endlocal & exit /b %FINAL_CODE%
+
+:Debug
+if not "%DEBUG%"=="1" exit /b 0
+echo [DEBUG] %~1
+exit /b 0
+
+:DebugKV
+if not "%DEBUG%"=="1" exit /b 0
+echo [DEBUG] %~1=%~2
+exit /b 0
 
 :NormalizeBackupDir
 if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
@@ -206,12 +234,15 @@ exit /b 0
 
 :ListDistros
 set "DISTRO_COUNT=0"
+call :Debug "ListDistros: querying wsl.exe -l -q"
 for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "$ErrorActionPreference='Stop'; wsl.exe -l -q | ForEach-Object { ($_.ToString() -replace [char]0,'').Trim() } | Where-Object { $_ }"`) do (
     if not "%%d"=="" (
         set /a DISTRO_COUNT+=1
         set "DISTRO_!DISTRO_COUNT!=%%d"
+        call :Debug "ListDistros item[!DISTRO_COUNT!]=%%d"
     )
 )
+call :DebugKV "ListDistros.count" "!DISTRO_COUNT!"
 exit /b 0
 
 :ResolveDistro
@@ -238,6 +269,8 @@ if !IDXN! LSS 1 goto choose_distro
 if !IDXN! GTR !DISTRO_COUNT! goto choose_distro
 call set "DISTRO=%%DISTRO_%IDXN%%%"
 if not defined DISTRO goto choose_distro
+call :DebugKV "ResolveDistro.selected_index" "%IDXN%"
+call :DebugKV "ResolveDistro.selected_name" "%DISTRO%"
 exit /b 0
 
 :validate_distro
@@ -246,6 +279,8 @@ set "FOUND="
 for /l %%i in (1,1,!DISTRO_COUNT!) do (
     if /I "!DISTRO_%%i!"=="%DISTRO%" set "FOUND=1"
 )
+call :DebugKV "ResolveDistro.validate_name" "%DISTRO%"
+call :DebugKV "ResolveDistro.validate_found" "%FOUND%"
 if not defined FOUND (
     echo.
     echo ERROR: Distro "%DISTRO%" not found.
@@ -255,6 +290,8 @@ exit /b 0
 
 :BackupCurrentDistro
 call :NormalizeBackupDir
+call :DebugKV "BackupCurrentDistro.distro" "%DISTRO%"
+call :DebugKV "BackupCurrentDistro.backup_dir" "%BACKUP_DIR%"
 if not exist "%BACKUP_DIR%" (
     mkdir "%BACKUP_DIR%" >nul 2>nul
     if errorlevel 1 (
@@ -279,6 +316,7 @@ if errorlevel 1 (
 )
 
 set "ARCHIVE_PATH=%BACKUP_DIR%\%SAFE_DISTRO%_%TS%.tar"
+call :DebugKV "BackupCurrentDistro.archive_path" "%ARCHIVE_PATH%"
 
 echo.
 echo ==== Backup ====
@@ -288,6 +326,7 @@ wsl.exe --terminate "%DISTRO%" >nul 2>nul
 echo Exporting to: %ARCHIVE_PATH%
 wsl.exe --export "%DISTRO%" "%ARCHIVE_PATH%"
 set "EXPORT_RC=%errorlevel%"
+call :DebugKV "BackupCurrentDistro.export_rc" "%EXPORT_RC%"
 if not "%EXPORT_RC%"=="0" (
     echo.
     echo ERROR: wsl --export failed with exit code %EXPORT_RC%.
@@ -299,6 +338,7 @@ if not exist "%ARCHIVE_PATH%" (
     exit /b 1
 )
 for %%A in ("%ARCHIVE_PATH%") do set "ARCHIVE_SIZE=%%~zA"
+call :DebugKV "BackupCurrentDistro.archive_size" "%ARCHIVE_SIZE%"
 if "%ARCHIVE_SIZE%"=="0" (
     echo.
     echo ERROR: backup archive is empty: %ARCHIVE_PATH%
@@ -315,6 +355,7 @@ exit /b 0
 if defined BACKUP_FILE goto validate_backup_file
 
 call :NormalizeBackupDir
+call :DebugKV "ResolveBackupFile.input_backup_dir" "%BACKUP_DIR%"
 if not exist "%BACKUP_DIR%" (
     echo.
     echo ERROR: Backup directory not found: "%BACKUP_DIR%"
@@ -326,6 +367,7 @@ for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "$ErrorActionP
     set /a BACKUP_COUNT+=1
     set "BACKUP_!BACKUP_COUNT!=%%f"
 )
+call :DebugKV "ResolveBackupFile.count" "!BACKUP_COUNT!"
 
 if "!BACKUP_COUNT!"=="0" (
     echo.
@@ -347,6 +389,8 @@ if !BIDXN! LSS 1 goto choose_backup
 if !BIDXN! GTR !BACKUP_COUNT! goto choose_backup
 call set "BACKUP_FILE=%%BACKUP_%BIDXN%%%"
 if not defined BACKUP_FILE goto choose_backup
+call :DebugKV "ResolveBackupFile.selected_index" "%BIDXN%"
+call :DebugKV "ResolveBackupFile.selected_file" "%BACKUP_FILE%"
 exit /b 0
 
 :validate_backup_file
@@ -355,6 +399,7 @@ if not exist "%BACKUP_FILE%" (
     echo ERROR: Backup file not found: "%BACKUP_FILE%"
     exit /b 1
 )
+call :DebugKV "ResolveBackupFile.direct_file" "%BACKUP_FILE%"
 exit /b 0
 
 :ResolveRestoreNameAndPath
@@ -376,6 +421,8 @@ if not defined INSTALL_PATH (
     set /p "INSTALL_PATH=Restore install path [%DEFAULT_INSTALL%]: "
     if not defined INSTALL_PATH set "INSTALL_PATH=%DEFAULT_INSTALL%"
 )
+call :DebugKV "ResolveRestoreNameAndPath.restore_as" "%RESTORE_AS%"
+call :DebugKV "ResolveRestoreNameAndPath.install_path" "%INSTALL_PATH%"
 
 exit /b 0
 
@@ -385,6 +432,7 @@ call :ListDistros
 for /l %%i in (1,1,!DISTRO_COUNT!) do (
     if /I "!DISTRO_%%i!"=="%RESTORE_AS%" set "RESTORE_EXISTS=1"
 )
+call :DebugKV "EnsureRestoreTargetReady.restore_exists" "%RESTORE_EXISTS%"
 
 if defined RESTORE_EXISTS (
     set "UNREG_CONFIRM="
@@ -420,18 +468,25 @@ if not exist "%INSTALL_PATH%" (
 exit /b 0
 
 :RunWslRoot
-wsl.exe -d "%DISTRO%" -u root -- bash -lc "%~1"
-exit /b %errorlevel%
+set "WSL_CMD=%~1"
+call :DebugKV "RunWslRoot.distro" "%DISTRO%"
+wsl.exe -d "%DISTRO%" -u root -- bash -lc "%WSL_CMD%"
+set "WSL_RC=%errorlevel%"
+call :DebugKV "RunWslRoot.rc" "%WSL_RC%"
+exit /b %WSL_RC%
 
 :GetUbuntuVersion
 set "UBUNTU_VERSION="
+call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
 for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi" 2^>nul') do set "UBUNTU_VERSION=%%v"
+call :DebugKV "GetUbuntuVersion.value" "%UBUNTU_VERSION%"
 if not defined UBUNTU_VERSION exit /b 1
 exit /b 0
 
 :AssertUbuntuDistro
 set "UBUNTU_ID="
 for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc ". /etc/os-release; echo ${ID}" 2^>nul') do set "UBUNTU_ID=%%i"
+call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I not "%UBUNTU_ID%"=="ubuntu" (
     echo.
     echo ERROR: Distro "%DISTRO%" is not Ubuntu.
@@ -450,14 +505,17 @@ exit /b 0
 :RunReleaseUpgradeOnce
 echo.
 echo ==== Run do-release-upgrade ====
+call :DebugKV "RunReleaseUpgradeOnce.distro" "%DISTRO%"
 wsl.exe -d "%DISTRO%" -u root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
 set "UPGRADE_EXIT_CODE=%errorlevel%"
+call :DebugKV "RunReleaseUpgradeOnce.rc" "%UPGRADE_EXIT_CODE%"
 wsl.exe --terminate "%DISTRO%" >nul 2>nul
 timeout /t 3 /nobreak >nul
 set "%~1=%UPGRADE_EXIT_CODE%"
 exit /b 0
 
 :ActionBackup
+call :Debug "ActionBackup: start"
 call :ResolveDistro
 if errorlevel 1 exit /b 1
 
@@ -465,11 +523,13 @@ if not defined BACKUP_DIR (
     set /p "BACKUP_DIR=Backup directory [%USERPROFILE%\WSL-Backups]: "
 )
 if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
+call :DebugKV "ActionBackup.backup_dir" "%BACKUP_DIR%"
 
 call :BackupCurrentDistro
 exit /b %errorlevel%
 
 :ActionRestore
+call :Debug "ActionRestore: start"
 if not defined BACKUP_FILE (
     if not defined BACKUP_DIR (
         set /p "BACKUP_DIR=Backup directory [%USERPROFILE%\WSL-Backups]: "
@@ -485,14 +545,19 @@ if errorlevel 1 exit /b 1
 
 call :EnsureRestoreTargetReady
 if errorlevel 1 exit /b 1
+call :DebugKV "ActionRestore.backup_file" "%BACKUP_FILE%"
+call :DebugKV "ActionRestore.restore_as" "%RESTORE_AS%"
+call :DebugKV "ActionRestore.install_path" "%INSTALL_PATH%"
 
 echo.
 echo ==== Restore ====
 echo Importing backup "%BACKUP_FILE%" as distro "%RESTORE_AS%"...
 wsl.exe --import "%RESTORE_AS%" "%INSTALL_PATH%" "%BACKUP_FILE%" --version 2
-if errorlevel 1 (
+set "IMPORT_RC=%errorlevel%"
+call :DebugKV "ActionRestore.import_rc" "%IMPORT_RC%"
+if not "%IMPORT_RC%"=="0" (
     echo.
-    echo ERROR: wsl --import failed.
+    echo ERROR: wsl --import failed with exit code %IMPORT_RC%.
     exit /b 1
 )
 
@@ -501,6 +566,7 @@ echo Note: imported distro may default to root user.
 exit /b 0
 
 :ActionUpgrade
+call :Debug "ActionUpgrade: start"
 call :ResolveDistro
 if errorlevel 1 exit /b 1
 
@@ -514,6 +580,7 @@ if errorlevel 1 (
     exit /b 1
 )
 echo Current Ubuntu version: %UBUNTU_VERSION%
+call :DebugKV "ActionUpgrade.current_version" "%UBUNTU_VERSION%"
 
 if "%SKIP_PRE_UPGRADE_BACKUP%"=="0" (
     if not defined BACKUP_DIR (
@@ -525,19 +592,26 @@ if "%SKIP_PRE_UPGRADE_BACKUP%"=="0" (
 ) else (
     echo Skipped pre-upgrade backup.
 )
+call :DebugKV "ActionUpgrade.target_lts" "%TARGET_LTS%"
 
 echo.
 echo ==== Prepare release upgrade ====
+call :Debug "ActionUpgrade step: apt-get update"
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get update"
 if errorlevel 1 goto upgrade_prepare_failed
+call :Debug "ActionUpgrade step: apt-get -y upgrade"
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y upgrade"
 if errorlevel 1 goto upgrade_prepare_failed
+call :Debug "ActionUpgrade step: apt-get -y dist-upgrade"
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y dist-upgrade"
 if errorlevel 1 goto upgrade_prepare_failed
+call :Debug "ActionUpgrade step: apt-get -y autoremove"
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y autoremove"
 if errorlevel 1 goto upgrade_prepare_failed
+call :Debug "ActionUpgrade step: apt-get -y install update-manager-core"
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y install update-manager-core"
 if errorlevel 1 goto upgrade_prepare_failed
+call :Debug "ActionUpgrade step: set Prompt=lts"
 call :RunWslRoot "if [ -f /etc/update-manager/release-upgrades ]; then sed -i 's/^Prompt=.*/Prompt=lts/' /etc/update-manager/release-upgrades; else echo 'Prompt=lts' > /etc/update-manager/release-upgrades; fi"
 if errorlevel 1 goto upgrade_prepare_failed
 goto after_prepare
@@ -650,6 +724,7 @@ echo [2] Restore from backup
 echo [3] Upgrade Ubuntu LTS with do-release-upgrade
 set "MENU_CHOICE="
 set /p "MENU_CHOICE=Choose action: "
+call :DebugKV "ActionMenu.choice" "%MENU_CHOICE%"
 
 if "%MENU_CHOICE%"=="1" (
     set "ACTION=backup"
