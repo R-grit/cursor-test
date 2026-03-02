@@ -171,9 +171,9 @@ call :FinalizeAndExit %RET%
 set "FINAL_CODE=%~1"
 echo.
 if "%FINAL_CODE%"=="0" (
-    echo 执行完成，返回码: 0
+    echo Completed successfully, exit code: 0
 ) else (
-    echo 执行失败，返回码: %FINAL_CODE%
+    echo Failed, exit code: %FINAL_CODE%
 )
 if "%AUTO_PAUSE%"=="1" (
     echo.
@@ -229,12 +229,12 @@ if "!DISTRO_COUNT!"=="0" (
     exit /b 1
 )
 
-call :PrintSection "可用 WSL 发行版"
+call :PrintSection "Available WSL distros"
 for /l %%i in (1,1,!DISTRO_COUNT!) do echo [%%i] !DISTRO_%%i!
 
 :choose_distro
 set "IDX="
-set /p "IDX=请输入发行版编号: "
+set /p "IDX=Select distro number: "
 if not defined IDX goto choose_distro
 2>nul set /a IDXN=IDX
 if errorlevel 1 goto choose_distro
@@ -283,11 +283,11 @@ if errorlevel 1 (
 
 set "ARCHIVE_PATH=%BACKUP_DIR%\%SAFE_DISTRO%_%TS%.tar"
 
-call :PrintSection "备份"
-echo 正在停止发行版 "%DISTRO%" 以提高备份一致性...
+call :PrintSection "Backup"
+echo Stopping distro "%DISTRO%" for consistency...
 wsl.exe --terminate "%DISTRO%" >nul 2>nul
 
-echo 正在导出到: %ARCHIVE_PATH%
+echo Exporting to: %ARCHIVE_PATH%
 wsl.exe --export "%DISTRO%" "%ARCHIVE_PATH%"
 if errorlevel 1 (
     echo.
@@ -298,7 +298,7 @@ if errorlevel 1 (
 set "META_PATH=%ARCHIVE_PATH%.meta.json"
 powershell -NoProfile -Command "$obj=[ordered]@{distro=$env:DISTRO;createdAt=(Get-Date).ToString('o');archive=$env:ARCHIVE_PATH;host=$env:COMPUTERNAME};$obj|ConvertTo-Json|Out-File -LiteralPath $env:META_PATH -Encoding utf8" >nul 2>nul
 
-echo 备份完成: %ARCHIVE_PATH%
+echo Backup completed: %ARCHIVE_PATH%
 exit /b 0
 
 :ResolveBackupFile
@@ -323,12 +323,12 @@ if "!BACKUP_COUNT!"=="0" (
     exit /b 1
 )
 
-call :PrintSection "可选备份"
+call :PrintSection "Available backups"
 for /l %%i in (1,1,!BACKUP_COUNT!) do echo [%%i] !BACKUP_%%i!
 
 :choose_backup
 set "BIDX="
-set /p "BIDX=请输入备份编号: "
+set /p "BIDX=Select backup number: "
 if not defined BIDX goto choose_backup
 2>nul set /a BIDXN=BIDX
 if errorlevel 1 goto choose_backup
@@ -355,13 +355,13 @@ if not defined RESTORE_AS (
     call :GetTimestampCompact TS2
     if errorlevel 1 set "TS2=restored"
     set "DEFAULT_RESTORE=%SOURCE_NAME%-restored-%TS2%"
-    set /p "RESTORE_AS=恢复后的发行版名称 [%DEFAULT_RESTORE%]: "
+    set /p "RESTORE_AS=Restored distro name [%DEFAULT_RESTORE%]: "
     if not defined RESTORE_AS set "RESTORE_AS=%DEFAULT_RESTORE%"
 )
 
 if not defined INSTALL_PATH (
     set "DEFAULT_INSTALL=%LOCALAPPDATA%\WSL\Distros\%RESTORE_AS%"
-    set /p "INSTALL_PATH=恢复安装路径 [%DEFAULT_INSTALL%]: "
+    set /p "INSTALL_PATH=Restore install path [%DEFAULT_INSTALL%]: "
     if not defined INSTALL_PATH set "INSTALL_PATH=%DEFAULT_INSTALL%"
 )
 
@@ -375,7 +375,7 @@ for /f "delims=" %%d in ('wsl.exe -l -q') do (
 
 if defined RESTORE_EXISTS (
     set "UNREG_CONFIRM="
-    set /p "UNREG_CONFIRM=发行版 %RESTORE_AS% 已存在，是否先 unregister? [y/N]: "
+    set /p "UNREG_CONFIRM=Distro %RESTORE_AS% already exists. Unregister first? [y/N]: "
     if /I not "%UNREG_CONFIRM%"=="y" if /I not "%UNREG_CONFIRM%"=="yes" (
         echo.
         echo ERROR: Restore cancelled because target distro exists.
@@ -435,7 +435,7 @@ set "%~2=%TMP_INT%"
 exit /b 0
 
 :RunReleaseUpgradeOnce
-call :PrintSection "运行 do-release-upgrade"
+call :PrintSection "Run do-release-upgrade"
 wsl.exe -d "%DISTRO%" -u root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
 set "UPGRADE_EXIT_CODE=%errorlevel%"
 wsl.exe --terminate "%DISTRO%" >nul 2>nul
@@ -448,7 +448,7 @@ call :ResolveDistro
 if errorlevel 1 exit /b 1
 
 if not defined BACKUP_DIR (
-    set /p "BACKUP_DIR=备份目录 [%USERPROFILE%\WSL-Backups]: "
+    set /p "BACKUP_DIR=Backup directory [%USERPROFILE%\WSL-Backups]: "
 )
 if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
 
@@ -458,7 +458,7 @@ exit /b %errorlevel%
 :ActionRestore
 if not defined BACKUP_FILE (
     if not defined BACKUP_DIR (
-        set /p "BACKUP_DIR=备份目录 [%USERPROFILE%\WSL-Backups]: "
+        set /p "BACKUP_DIR=Backup directory [%USERPROFILE%\WSL-Backups]: "
     )
     if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
 )
@@ -472,8 +472,8 @@ if errorlevel 1 exit /b 1
 call :EnsureRestoreTargetReady
 if errorlevel 1 exit /b 1
 
-call :PrintSection "恢复"
-echo 正在导入备份 "%BACKUP_FILE%" 到发行版 "%RESTORE_AS%"...
+call :PrintSection "Restore"
+echo Importing backup "%BACKUP_FILE%" as distro "%RESTORE_AS%"...
 wsl.exe --import "%RESTORE_AS%" "%INSTALL_PATH%" "%BACKUP_FILE%" --version 2
 if errorlevel 1 (
     echo.
@@ -481,8 +481,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo 恢复完成: %RESTORE_AS%
-echo 提示: import 后默认用户可能是 root，可按需再设置默认用户。
+echo Restore completed: %RESTORE_AS%
+echo Note: imported distro may default to root user.
 exit /b 0
 
 :ActionUpgrade
@@ -498,20 +498,20 @@ if errorlevel 1 (
     echo ERROR: Failed to detect Ubuntu version.
     exit /b 1
 )
-echo 当前 Ubuntu 版本: %UBUNTU_VERSION%
+echo Current Ubuntu version: %UBUNTU_VERSION%
 
 if "%SKIP_PRE_UPGRADE_BACKUP%"=="0" (
     if not defined BACKUP_DIR (
-        set /p "BACKUP_DIR=升级前备份目录 [%USERPROFILE%\WSL-Backups]: "
+        set /p "BACKUP_DIR=Pre-upgrade backup directory [%USERPROFILE%\WSL-Backups]: "
     )
     if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
     call :BackupCurrentDistro
     if errorlevel 1 exit /b 1
 ) else (
-    echo 已跳过升级前备份。
+    echo Skipped pre-upgrade backup.
 )
 
-call :PrintSection "准备升级环境"
+call :PrintSection "Prepare release upgrade"
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get update"
 if errorlevel 1 goto upgrade_prepare_failed
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y upgrade"
@@ -560,14 +560,14 @@ if %CURRENT_INT% GTR %TARGET_INT% (
     exit /b 1
 )
 if %CURRENT_INT% EQU %TARGET_INT% (
-    echo 已经是目标版本: %TARGET_LTS%
+    echo Already on target version: %TARGET_LTS%
     exit /b 0
 )
 
 :upgrade_loop
 if %CURRENT_INT% GEQ %TARGET_INT% goto target_reached
 set "PREV_VERSION=%UBUNTU_VERSION%"
-echo 正在从 %PREV_VERSION% 升级，目标 %TARGET_LTS% ...
+echo Upgrading from %PREV_VERSION% to target %TARGET_LTS% ...
 call :RunReleaseUpgradeOnce STEP_EXIT
 call :GetUbuntuVersion
 if errorlevel 1 (
@@ -586,7 +586,7 @@ if /I "%UBUNTU_VERSION%"=="%PREV_VERSION%" (
         exit /b 1
     )
 )
-echo 版本变化: %PREV_VERSION% ^> %UBUNTU_VERSION%
+echo Version changed: %PREV_VERSION% ^> %UBUNTU_VERSION%
 call :VersionToInt "%UBUNTU_VERSION%" CURRENT_INT
 if errorlevel 1 (
     echo.
@@ -601,7 +601,7 @@ if %CURRENT_INT% GTR %TARGET_INT% (
 goto upgrade_loop
 
 :target_reached
-echo 已到达目标版本: %UBUNTU_VERSION%
+echo Target reached: %UBUNTU_VERSION%
 exit /b 0
 
 :one_step_upgrade
@@ -615,7 +615,7 @@ if errorlevel 1 (
 )
 if /I "%UBUNTU_VERSION%"=="%PREV_ONE_STEP%" (
     if "%STEP_EXIT%"=="0" (
-        echo 未检测到版本变化，可能当前已是最新可升级 LTS。
+        echo No version change detected; may already be newest available LTS.
         exit /b 0
     ) else (
         echo.
@@ -623,16 +623,16 @@ if /I "%UBUNTU_VERSION%"=="%PREV_ONE_STEP%" (
         exit /b 1
     )
 )
-echo 升级完成: %PREV_ONE_STEP% ^> %UBUNTU_VERSION%
+echo Upgrade completed: %PREV_ONE_STEP% ^> %UBUNTU_VERSION%
 exit /b 0
 
 :ActionMenu
-call :PrintSection "WSL 自动化脚本 (.bat)"
-echo [1] 备份发行版
-echo [2] 从备份恢复发行版
-echo [3] do-release-upgrade 升级 Ubuntu LTS
+call :PrintSection "WSL automation script (.bat)"
+echo [1] Backup distro
+echo [2] Restore from backup
+echo [3] Upgrade Ubuntu LTS with do-release-upgrade
 set "MENU_CHOICE="
-set /p "MENU_CHOICE=请选择操作: "
+set /p "MENU_CHOICE=Choose action: "
 
 if "%MENU_CHOICE%"=="1" (
     set "ACTION=backup"
@@ -650,7 +650,7 @@ if "%MENU_CHOICE%"=="3" (
     set "ACTION=upgrade"
     set "DISTRO="
     if not defined TARGET_LTS (
-        set /p "TARGET_LTS=目标 LTS 版本（可空，例如 24.04）: "
+        set /p "TARGET_LTS=Target LTS version (optional, e.g. 24.04): "
     )
     call :ActionUpgrade
     exit /b %errorlevel%

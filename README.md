@@ -34,3 +34,4 @@ wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\W
 - `--target-lts` 格式示例：`20.04`、`22.04`、`24.04`。
 - 恢复使用 `wsl --import`，导入后默认用户可能是 root，可按需再设置。
 - 脚本执行结束会显示返回码并暂停，方便查看结果；如需关闭暂停可加 `--no-pause`。
+- 为兼容不同 `cmd` 代码页，`.bat` 内文案已使用纯 ASCII，避免编码导致的解析异常。
