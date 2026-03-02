@@ -181,11 +181,6 @@ if "%AUTO_PAUSE%"=="1" (
 )
 endlocal & exit /b %FINAL_CODE%
 
-:PrintSection
-echo.
-echo ==== %~1 ====
-exit /b 0
-
 :NormalizeBackupDir
 if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
 exit /b 0
@@ -211,7 +206,7 @@ exit /b 0
 
 :ListDistros
 set "DISTRO_COUNT=0"
-for /f "delims=" %%d in ('wsl.exe -l -q') do (
+for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "$ErrorActionPreference='Stop'; wsl.exe -l -q | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }"`) do (
     if not "%%d"=="" (
         set /a DISTRO_COUNT+=1
         set "DISTRO_!DISTRO_COUNT!=%%d"
@@ -229,7 +224,8 @@ if "!DISTRO_COUNT!"=="0" (
     exit /b 1
 )
 
-call :PrintSection "Available WSL distros"
+echo.
+echo ==== Available WSL distros ====
 for /l %%i in (1,1,!DISTRO_COUNT!) do echo [%%i] !DISTRO_%%i!
 
 :choose_distro
@@ -283,7 +279,8 @@ if errorlevel 1 (
 
 set "ARCHIVE_PATH=%BACKUP_DIR%\%SAFE_DISTRO%_%TS%.tar"
 
-call :PrintSection "Backup"
+echo.
+echo ==== Backup ====
 echo Stopping distro "%DISTRO%" for consistency...
 wsl.exe --terminate "%DISTRO%" >nul 2>nul
 
@@ -323,7 +320,8 @@ if "!BACKUP_COUNT!"=="0" (
     exit /b 1
 )
 
-call :PrintSection "Available backups"
+echo.
+echo ==== Available backups ====
 for /l %%i in (1,1,!BACKUP_COUNT!) do echo [%%i] !BACKUP_%%i!
 
 :choose_backup
@@ -369,8 +367,9 @@ exit /b 0
 
 :EnsureRestoreTargetReady
 set "RESTORE_EXISTS="
-for /f "delims=" %%d in ('wsl.exe -l -q') do (
-    if /I "%%d"=="%RESTORE_AS%" set "RESTORE_EXISTS=1"
+call :ListDistros
+for /l %%i in (1,1,!DISTRO_COUNT!) do (
+    if /I "!DISTRO_%%i!"=="%RESTORE_AS%" set "RESTORE_EXISTS=1"
 )
 
 if defined RESTORE_EXISTS (
@@ -435,7 +434,8 @@ set "%~2=%TMP_INT%"
 exit /b 0
 
 :RunReleaseUpgradeOnce
-call :PrintSection "Run do-release-upgrade"
+echo.
+echo ==== Run do-release-upgrade ====
 wsl.exe -d "%DISTRO%" -u root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
 set "UPGRADE_EXIT_CODE=%errorlevel%"
 wsl.exe --terminate "%DISTRO%" >nul 2>nul
@@ -472,7 +472,8 @@ if errorlevel 1 exit /b 1
 call :EnsureRestoreTargetReady
 if errorlevel 1 exit /b 1
 
-call :PrintSection "Restore"
+echo.
+echo ==== Restore ====
 echo Importing backup "%BACKUP_FILE%" as distro "%RESTORE_AS%"...
 wsl.exe --import "%RESTORE_AS%" "%INSTALL_PATH%" "%BACKUP_FILE%" --version 2
 if errorlevel 1 (
@@ -511,7 +512,8 @@ if "%SKIP_PRE_UPGRADE_BACKUP%"=="0" (
     echo Skipped pre-upgrade backup.
 )
 
-call :PrintSection "Prepare release upgrade"
+echo.
+echo ==== Prepare release upgrade ====
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get update"
 if errorlevel 1 goto upgrade_prepare_failed
 call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y upgrade"
@@ -627,7 +629,8 @@ echo Upgrade completed: %PREV_ONE_STEP% ^> %UBUNTU_VERSION%
 exit /b 0
 
 :ActionMenu
-call :PrintSection "WSL automation script (.bat)"
+echo.
+echo ==== WSL automation script (.bat) ====
 echo [1] Backup distro
 echo [2] Restore from backup
 echo [3] Upgrade Ubuntu LTS with do-release-upgrade
