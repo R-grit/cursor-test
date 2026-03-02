@@ -1,0 +1,613 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "ACTION="
+set "DISTRO="
+set "BACKUP_DIR="
+set "BACKUP_FILE="
+set "RESTORE_AS="
+set "INSTALL_PATH="
+set "TARGET_LTS="
+set "SKIP_PRE_UPGRADE_BACKUP=0"
+
+if /I "%~1"=="backup" (
+    set "ACTION=backup"
+    shift
+) else if /I "%~1"=="restore" (
+    set "ACTION=restore"
+    shift
+) else if /I "%~1"=="upgrade" (
+    set "ACTION=upgrade"
+    shift
+) else if /I "%~1"=="menu" (
+    set "ACTION=menu"
+    shift
+)
+
+:parse_args
+if "%~1"=="" goto args_done
+if /I "%~1"=="--action" (
+    set "ACTION=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--distro" (
+    set "DISTRO=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--backup-dir" (
+    set "BACKUP_DIR=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--backup-file" (
+    set "BACKUP_FILE=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--restore-as" (
+    set "RESTORE_AS=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--install-path" (
+    set "INSTALL_PATH=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--target-lts" (
+    set "TARGET_LTS=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--skip-pre-upgrade-backup" (
+    set "SKIP_PRE_UPGRADE_BACKUP=1"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--help" goto show_help
+if /I "%~1"=="-h" goto show_help
+
+echo.
+echo ERROR: Unknown argument "%~1"
+goto show_help
+
+:args_done
+if not defined ACTION set "ACTION=menu"
+
+where wsl.exe >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo ERROR: wsl.exe not found. Run this script on Windows with WSL installed.
+    exit /b 1
+)
+
+if /I "%ACTION%"=="backup" (
+    call :ActionBackup
+    exit /b %errorlevel%
+)
+if /I "%ACTION%"=="restore" (
+    call :ActionRestore
+    exit /b %errorlevel%
+)
+if /I "%ACTION%"=="upgrade" (
+    call :ActionUpgrade
+    exit /b %errorlevel%
+)
+if /I "%ACTION%"=="menu" (
+    call :ActionMenu
+    exit /b %errorlevel%
+)
+
+echo.
+echo ERROR: Unsupported action "%ACTION%"
+goto show_help
+
+:show_help
+echo.
+echo Usage:
+echo   wsl_automation.bat [menu^|backup^|restore^|upgrade] [options]
+echo.
+echo Options:
+echo   --action ^<menu^|backup^|restore^|upgrade^>
+echo   --distro ^<WSL distro name^>
+echo   --backup-dir ^<directory for .tar backups^>
+echo   --backup-file ^<specific .tar file to restore^>
+echo   --restore-as ^<new distro name when restore^>
+echo   --install-path ^<path used by wsl --import^>
+echo   --target-lts ^<20.04^|22.04^|24.04...^>
+echo   --skip-pre-upgrade-backup
+echo.
+echo Examples:
+echo   wsl_automation.bat
+echo   wsl_automation.bat backup --distro Ubuntu --backup-dir "D:\WSLBackups"
+echo   wsl_automation.bat restore --backup-dir "D:\WSLBackups"
+echo   wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
+exit /b 1
+
+:PrintSection
+echo.
+echo ==== %~1 ====
+exit /b 0
+
+:NormalizeBackupDir
+if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
+exit /b 0
+
+:GetTimestamp
+set "%~1="
+for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "(Get-Date).ToString('yyyyMMdd_HHmmss')"`) do set "%~1=%%t"
+if not defined %~1 exit /b 1
+exit /b 0
+
+:GetTimestampCompact
+set "%~1="
+for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "(Get-Date).ToString('yyyyMMddHHmm')"`) do set "%~1=%%t"
+if not defined %~1 exit /b 1
+exit /b 0
+
+:SanitizeName
+set "RAW_NAME=%~1"
+set "%~2="
+for /f "usebackq delims=" %%s in (`powershell -NoProfile -Command "$env:RAW_NAME -replace '[^a-zA-Z0-9._-]','_'"`) do set "%~2=%%s"
+if not defined %~2 exit /b 1
+exit /b 0
+
+:ListDistros
+set "DISTRO_COUNT=0"
+for /f "delims=" %%d in ('wsl.exe -l -q') do (
+    if not "%%d"=="" (
+        set /a DISTRO_COUNT+=1
+        set "DISTRO_!DISTRO_COUNT!=%%d"
+    )
+)
+exit /b 0
+
+:ResolveDistro
+if defined DISTRO goto validate_distro
+
+call :ListDistros
+if "!DISTRO_COUNT!"=="0" (
+    echo.
+    echo ERROR: No WSL distro found.
+    exit /b 1
+)
+
+call :PrintSection "可用 WSL 发行版"
+for /l %%i in (1,1,!DISTRO_COUNT!) do echo [%%i] !DISTRO_%%i!
+
+:choose_distro
+set "IDX="
+set /p "IDX=请输入发行版编号: "
+if not defined IDX goto choose_distro
+2>nul set /a IDXN=IDX
+if errorlevel 1 goto choose_distro
+if !IDXN! LSS 1 goto choose_distro
+if !IDXN! GTR !DISTRO_COUNT! goto choose_distro
+set "DISTRO=!DISTRO_!IDXN!!"
+exit /b 0
+
+:validate_distro
+call :ListDistros
+set "FOUND="
+for /l %%i in (1,1,!DISTRO_COUNT!) do (
+    if /I "!DISTRO_%%i!"=="%DISTRO%" set "FOUND=1"
+)
+if not defined FOUND (
+    echo.
+    echo ERROR: Distro "%DISTRO%" not found.
+    exit /b 1
+)
+exit /b 0
+
+:BackupCurrentDistro
+call :NormalizeBackupDir
+if not exist "%BACKUP_DIR%" (
+    mkdir "%BACKUP_DIR%" >nul 2>nul
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Cannot create backup directory "%BACKUP_DIR%".
+        exit /b 1
+    )
+)
+
+call :GetTimestamp TS
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to generate timestamp.
+    exit /b 1
+)
+
+call :SanitizeName "%DISTRO%" SAFE_DISTRO
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to sanitize distro name.
+    exit /b 1
+)
+
+set "ARCHIVE_PATH=%BACKUP_DIR%\%SAFE_DISTRO%_%TS%.tar"
+
+call :PrintSection "备份"
+echo 正在停止发行版 "%DISTRO%" 以提高备份一致性...
+wsl.exe --terminate "%DISTRO%" >nul 2>nul
+
+echo 正在导出到: %ARCHIVE_PATH%
+wsl.exe --export "%DISTRO%" "%ARCHIVE_PATH%"
+if errorlevel 1 (
+    echo.
+    echo ERROR: wsl --export failed.
+    exit /b 1
+)
+
+set "META_PATH=%ARCHIVE_PATH%.meta.json"
+powershell -NoProfile -Command "$obj=[ordered]@{distro=$env:DISTRO;createdAt=(Get-Date).ToString('o');archive=$env:ARCHIVE_PATH;host=$env:COMPUTERNAME};$obj|ConvertTo-Json|Out-File -LiteralPath $env:META_PATH -Encoding utf8" >nul 2>nul
+
+echo 备份完成: %ARCHIVE_PATH%
+exit /b 0
+
+:ResolveBackupFile
+if defined BACKUP_FILE goto validate_backup_file
+
+call :NormalizeBackupDir
+if not exist "%BACKUP_DIR%" (
+    echo.
+    echo ERROR: Backup directory not found: "%BACKUP_DIR%"
+    exit /b 1
+)
+
+set "BACKUP_COUNT=0"
+for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "$ErrorActionPreference='Stop';Get-ChildItem -LiteralPath $env:BACKUP_DIR -Filter '*.tar' -File -Recurse | Sort-Object LastWriteTime -Descending | ForEach-Object { $_.FullName }"`) do (
+    set /a BACKUP_COUNT+=1
+    set "BACKUP_!BACKUP_COUNT!=%%f"
+)
+
+if "!BACKUP_COUNT!"=="0" (
+    echo.
+    echo ERROR: No .tar backups found under "%BACKUP_DIR%".
+    exit /b 1
+)
+
+call :PrintSection "可选备份"
+for /l %%i in (1,1,!BACKUP_COUNT!) do echo [%%i] !BACKUP_%%i!
+
+:choose_backup
+set "BIDX="
+set /p "BIDX=请输入备份编号: "
+if not defined BIDX goto choose_backup
+2>nul set /a BIDXN=BIDX
+if errorlevel 1 goto choose_backup
+if !BIDXN! LSS 1 goto choose_backup
+if !BIDXN! GTR !BACKUP_COUNT! goto choose_backup
+set "BACKUP_FILE=!BACKUP_!BIDXN!!"
+exit /b 0
+
+:validate_backup_file
+if not exist "%BACKUP_FILE%" (
+    echo.
+    echo ERROR: Backup file not found: "%BACKUP_FILE%"
+    exit /b 1
+)
+exit /b 0
+
+:ResolveRestoreNameAndPath
+for %%I in ("%BACKUP_FILE%") do set "SOURCE_BASENAME=%%~nI"
+set "SOURCE_NAME="
+for /f "usebackq delims=" %%s in (`powershell -NoProfile -Command "$n=$env:SOURCE_BASENAME; if($n -match '^(.*)_\d{8}_\d{6}$'){ $matches[1] } else { $n }"`) do set "SOURCE_NAME=%%s"
+if not defined SOURCE_NAME set "SOURCE_NAME=%SOURCE_BASENAME%"
+
+if not defined RESTORE_AS (
+    call :GetTimestampCompact TS2
+    if errorlevel 1 set "TS2=restored"
+    set "DEFAULT_RESTORE=%SOURCE_NAME%-restored-%TS2%"
+    set /p "RESTORE_AS=恢复后的发行版名称 [%DEFAULT_RESTORE%]: "
+    if not defined RESTORE_AS set "RESTORE_AS=%DEFAULT_RESTORE%"
+)
+
+if not defined INSTALL_PATH (
+    set "DEFAULT_INSTALL=%LOCALAPPDATA%\WSL\Distros\%RESTORE_AS%"
+    set /p "INSTALL_PATH=恢复安装路径 [%DEFAULT_INSTALL%]: "
+    if not defined INSTALL_PATH set "INSTALL_PATH=%DEFAULT_INSTALL%"
+)
+
+exit /b 0
+
+:EnsureRestoreTargetReady
+set "RESTORE_EXISTS="
+for /f "delims=" %%d in ('wsl.exe -l -q') do (
+    if /I "%%d"=="%RESTORE_AS%" set "RESTORE_EXISTS=1"
+)
+
+if defined RESTORE_EXISTS (
+    set "UNREG_CONFIRM="
+    set /p "UNREG_CONFIRM=发行版 %RESTORE_AS% 已存在，是否先 unregister? [y/N]: "
+    if /I not "%UNREG_CONFIRM%"=="y" if /I not "%UNREG_CONFIRM%"=="yes" (
+        echo.
+        echo ERROR: Restore cancelled because target distro exists.
+        exit /b 1
+    )
+    wsl.exe --unregister "%RESTORE_AS%"
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Failed to unregister "%RESTORE_AS%".
+        exit /b 1
+    )
+)
+
+if not exist "%INSTALL_PATH%" (
+    mkdir "%INSTALL_PATH%" >nul 2>nul
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Cannot create install path "%INSTALL_PATH%".
+        exit /b 1
+    )
+) else (
+    dir /b "%INSTALL_PATH%" 2>nul | findstr . >nul
+    if not errorlevel 1 (
+        echo.
+        echo ERROR: Install path is not empty: "%INSTALL_PATH%"
+        exit /b 1
+    )
+)
+exit /b 0
+
+:RunWslRoot
+wsl.exe -d "%DISTRO%" -u root -- bash -lc "%~1"
+exit /b %errorlevel%
+
+:GetUbuntuVersion
+set "UBUNTU_VERSION="
+for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi" 2^>nul') do set "UBUNTU_VERSION=%%v"
+if not defined UBUNTU_VERSION exit /b 1
+exit /b 0
+
+:AssertUbuntuDistro
+set "UBUNTU_ID="
+for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc ". /etc/os-release; echo ${ID}" 2^>nul') do set "UBUNTU_ID=%%i"
+if /I not "%UBUNTU_ID%"=="ubuntu" (
+    echo.
+    echo ERROR: Distro "%DISTRO%" is not Ubuntu.
+    exit /b 1
+)
+exit /b 0
+
+:VersionToInt
+set "TMP_VER=%~1"
+set "TMP_INT="
+for /f %%n in ('powershell -NoProfile -Command "$v=[version]$env:TMP_VER; [int]($v.Major*100 + $v.Minor)"') do set "TMP_INT=%%n"
+if not defined TMP_INT exit /b 1
+set "%~2=%TMP_INT%"
+exit /b 0
+
+:RunReleaseUpgradeOnce
+call :PrintSection "运行 do-release-upgrade"
+wsl.exe -d "%DISTRO%" -u root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
+set "UPGRADE_EXIT_CODE=%errorlevel%"
+wsl.exe --terminate "%DISTRO%" >nul 2>nul
+timeout /t 3 /nobreak >nul
+set "%~1=%UPGRADE_EXIT_CODE%"
+exit /b 0
+
+:ActionBackup
+call :ResolveDistro
+if errorlevel 1 exit /b 1
+
+if not defined BACKUP_DIR (
+    set /p "BACKUP_DIR=备份目录 [%USERPROFILE%\WSL-Backups]: "
+)
+if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
+
+call :BackupCurrentDistro
+exit /b %errorlevel%
+
+:ActionRestore
+if not defined BACKUP_FILE (
+    if not defined BACKUP_DIR (
+        set /p "BACKUP_DIR=备份目录 [%USERPROFILE%\WSL-Backups]: "
+    )
+    if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
+)
+
+call :ResolveBackupFile
+if errorlevel 1 exit /b 1
+
+call :ResolveRestoreNameAndPath
+if errorlevel 1 exit /b 1
+
+call :EnsureRestoreTargetReady
+if errorlevel 1 exit /b 1
+
+call :PrintSection "恢复"
+echo 正在导入备份 "%BACKUP_FILE%" 到发行版 "%RESTORE_AS%"...
+wsl.exe --import "%RESTORE_AS%" "%INSTALL_PATH%" "%BACKUP_FILE%" --version 2
+if errorlevel 1 (
+    echo.
+    echo ERROR: wsl --import failed.
+    exit /b 1
+)
+
+echo 恢复完成: %RESTORE_AS%
+echo 提示: import 后默认用户可能是 root，可按需再设置默认用户。
+exit /b 0
+
+:ActionUpgrade
+call :ResolveDistro
+if errorlevel 1 exit /b 1
+
+call :AssertUbuntuDistro
+if errorlevel 1 exit /b 1
+
+call :GetUbuntuVersion
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to detect Ubuntu version.
+    exit /b 1
+)
+echo 当前 Ubuntu 版本: %UBUNTU_VERSION%
+
+if "%SKIP_PRE_UPGRADE_BACKUP%"=="0" (
+    if not defined BACKUP_DIR (
+        set /p "BACKUP_DIR=升级前备份目录 [%USERPROFILE%\WSL-Backups]: "
+    )
+    if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
+    call :BackupCurrentDistro
+    if errorlevel 1 exit /b 1
+) else (
+    echo 已跳过升级前备份。
+)
+
+call :PrintSection "准备升级环境"
+call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get update"
+if errorlevel 1 goto upgrade_prepare_failed
+call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y upgrade"
+if errorlevel 1 goto upgrade_prepare_failed
+call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y dist-upgrade"
+if errorlevel 1 goto upgrade_prepare_failed
+call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y autoremove"
+if errorlevel 1 goto upgrade_prepare_failed
+call :RunWslRoot "export DEBIAN_FRONTEND=noninteractive; apt-get -y install update-manager-core"
+if errorlevel 1 goto upgrade_prepare_failed
+call :RunWslRoot "if [ -f /etc/update-manager/release-upgrades ]; then sed -i 's/^Prompt=.*/Prompt=lts/' /etc/update-manager/release-upgrades; else echo 'Prompt=lts' > /etc/update-manager/release-upgrades; fi"
+if errorlevel 1 goto upgrade_prepare_failed
+goto after_prepare
+
+:upgrade_prepare_failed
+echo.
+echo ERROR: Failed while preparing system for release upgrade.
+exit /b 1
+
+:after_prepare
+if not defined TARGET_LTS goto one_step_upgrade
+
+echo %TARGET_LTS% | findstr /r "^[0-9][0-9]\.04$" >nul
+if errorlevel 1 (
+    echo.
+    echo ERROR: --target-lts must look like 20.04 / 22.04 / 24.04
+    exit /b 1
+)
+
+call :VersionToInt "%TARGET_LTS%" TARGET_INT
+if errorlevel 1 (
+    echo.
+    echo ERROR: Invalid target version: %TARGET_LTS%
+    exit /b 1
+)
+call :VersionToInt "%UBUNTU_VERSION%" CURRENT_INT
+if errorlevel 1 (
+    echo.
+    echo ERROR: Invalid current version: %UBUNTU_VERSION%
+    exit /b 1
+)
+
+if %CURRENT_INT% GTR %TARGET_INT% (
+    echo.
+    echo ERROR: Current version %UBUNTU_VERSION% is newer than target %TARGET_LTS%.
+    exit /b 1
+)
+if %CURRENT_INT% EQU %TARGET_INT% (
+    echo 已经是目标版本: %TARGET_LTS%
+    exit /b 0
+)
+
+:upgrade_loop
+if %CURRENT_INT% GEQ %TARGET_INT% goto target_reached
+set "PREV_VERSION=%UBUNTU_VERSION%"
+echo 正在从 %PREV_VERSION% 升级，目标 %TARGET_LTS% ...
+call :RunReleaseUpgradeOnce STEP_EXIT
+call :GetUbuntuVersion
+if errorlevel 1 (
+    echo.
+    echo ERROR: Cannot detect Ubuntu version after upgrade.
+    exit /b 1
+)
+if /I "%UBUNTU_VERSION%"=="%PREV_VERSION%" (
+    if "%STEP_EXIT%"=="0" (
+        echo.
+        echo ERROR: do-release-upgrade completed but version did not change.
+        exit /b 1
+    ) else (
+        echo.
+        echo ERROR: do-release-upgrade failed or no newer LTS available.
+        exit /b 1
+    )
+)
+echo 版本变化: %PREV_VERSION% ^> %UBUNTU_VERSION%
+call :VersionToInt "%UBUNTU_VERSION%" CURRENT_INT
+if errorlevel 1 (
+    echo.
+    echo ERROR: Invalid upgraded version: %UBUNTU_VERSION%
+    exit /b 1
+)
+if %CURRENT_INT% GTR %TARGET_INT% (
+    echo.
+    echo ERROR: Upgraded to %UBUNTU_VERSION%, which is higher than target %TARGET_LTS%.
+    exit /b 1
+)
+goto upgrade_loop
+
+:target_reached
+echo 已到达目标版本: %UBUNTU_VERSION%
+exit /b 0
+
+:one_step_upgrade
+set "PREV_ONE_STEP=%UBUNTU_VERSION%"
+call :RunReleaseUpgradeOnce STEP_EXIT
+call :GetUbuntuVersion
+if errorlevel 1 (
+    echo.
+    echo ERROR: Cannot detect Ubuntu version after upgrade.
+    exit /b 1
+)
+if /I "%UBUNTU_VERSION%"=="%PREV_ONE_STEP%" (
+    if "%STEP_EXIT%"=="0" (
+        echo 未检测到版本变化，可能当前已是最新可升级 LTS。
+        exit /b 0
+    ) else (
+        echo.
+        echo ERROR: Upgrade failed and version stayed at %PREV_ONE_STEP%.
+        exit /b 1
+    )
+)
+echo 升级完成: %PREV_ONE_STEP% ^> %UBUNTU_VERSION%
+exit /b 0
+
+:ActionMenu
+call :PrintSection "WSL 自动化脚本 (.bat)"
+echo [1] 备份发行版
+echo [2] 从备份恢复发行版
+echo [3] do-release-upgrade 升级 Ubuntu LTS
+set "MENU_CHOICE="
+set /p "MENU_CHOICE=请选择操作: "
+
+if "%MENU_CHOICE%"=="1" (
+    set "ACTION=backup"
+    set "DISTRO="
+    set "BACKUP_DIR="
+    call :ActionBackup
+    exit /b %errorlevel%
+)
+if "%MENU_CHOICE%"=="2" (
+    set "ACTION=restore"
+    call :ActionRestore
+    exit /b %errorlevel%
+)
+if "%MENU_CHOICE%"=="3" (
+    set "ACTION=upgrade"
+    set "DISTRO="
+    if not defined TARGET_LTS (
+        set /p "TARGET_LTS=目标 LTS 版本（可空，例如 24.04）: "
+    )
+    call :ActionUpgrade
+    exit /b %errorlevel%
+)
+
+echo.
+echo ERROR: Invalid menu choice.
+exit /b 1

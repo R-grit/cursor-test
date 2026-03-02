@@ -1,46 +1,35 @@
 # cursor-test
 
-## WSL automation script (Windows)
+## WSL 自动化脚本（Windows）
 
-This repository now includes `wsl_automation.ps1`, a PowerShell script for:
+仓库现在提供 `wsl_automation.bat`，可直接双击或在 `cmd/PowerShell` 运行，支持：
 
-1. WSL distro backup (custom backup directory supported)
-2. Restore from selectable backups (choose from multiple `.tar` archives)
-3. Ubuntu LTS release upgrade with `do-release-upgrade` (target LTS can be specified)
+1. WSL 备份（支持自定义备份目录）
+2. 从多个备份中选择恢复（`.tar` 列表可选）
+3. 使用 `do-release-upgrade` 升级 Ubuntu，且可指定目标 LTS 版本
 
-### Script location
+### 脚本位置
 
-- `wsl_automation.ps1`
+- `wsl_automation.bat`
 
-### Quick examples
+### 快速使用
 
-Run in PowerShell (Windows):
+```bat
+:: 交互菜单（最方便）
+wsl_automation.bat
 
-```powershell
-# Interactive menu
-powershell -ExecutionPolicy Bypass -File .\wsl_automation.ps1
+:: 备份到自定义目录
+wsl_automation.bat backup --distro Ubuntu --backup-dir "D:\WSLBackups"
 
-# Backup a distro to custom directory
-powershell -ExecutionPolicy Bypass -File .\wsl_automation.ps1 `
-  -Action backup `
-  -DistroName Ubuntu `
-  -BackupDirectory "D:\WSLBackups"
+:: 恢复（不传 --backup-file 时会列出多个备份供选择）
+wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 
-# Restore (if BackupFile is omitted, script lists backups to choose)
-powershell -ExecutionPolicy Bypass -File .\wsl_automation.ps1 `
-  -Action restore `
-  -BackupDirectory "D:\WSLBackups"
-
-# Upgrade Ubuntu to a target LTS (example: 24.04)
-powershell -ExecutionPolicy Bypass -File .\wsl_automation.ps1 `
-  -Action upgrade `
-  -DistroName Ubuntu `
-  -TargetLtsVersion 24.04 `
-  -BackupDirectory "D:\WSLBackups"
+:: 升级到指定 LTS（示例：24.04）
+wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
 ```
 
-### Notes
+### 说明
 
-- Upgrade action creates a pre-upgrade backup by default.
-- `TargetLtsVersion` uses LTS format like `20.04`, `22.04`, `24.04`.
-- Restore uses `wsl --import`, and imported distro may default to root user initially.
+- 升级动作默认会先做一次升级前备份，便于回滚。
+- `--target-lts` 格式示例：`20.04`、`22.04`、`24.04`。
+- 恢复使用 `wsl --import`，导入后默认用户可能是 root，可按需再设置。
