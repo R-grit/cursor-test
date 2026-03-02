@@ -206,7 +206,7 @@ exit /b 0
 
 :ListDistros
 set "DISTRO_COUNT=0"
-for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "$ErrorActionPreference='Stop'; wsl.exe -l -q | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }"`) do (
+for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "$ErrorActionPreference='Stop'; wsl.exe -l -q | ForEach-Object { ($_.ToString() -replace [char]0,'').Trim() } | Where-Object { $_ }"`) do (
     if not "%%d"=="" (
         set /a DISTRO_COUNT+=1
         set "DISTRO_!DISTRO_COUNT!=%%d"
@@ -236,7 +236,8 @@ if not defined IDX goto choose_distro
 if errorlevel 1 goto choose_distro
 if !IDXN! LSS 1 goto choose_distro
 if !IDXN! GTR !DISTRO_COUNT! goto choose_distro
-set "DISTRO=!DISTRO_!IDXN!!"
+call set "DISTRO=%%DISTRO_%IDXN%%%"
+if not defined DISTRO goto choose_distro
 exit /b 0
 
 :validate_distro
@@ -286,9 +287,21 @@ wsl.exe --terminate "%DISTRO%" >nul 2>nul
 
 echo Exporting to: %ARCHIVE_PATH%
 wsl.exe --export "%DISTRO%" "%ARCHIVE_PATH%"
-if errorlevel 1 (
+set "EXPORT_RC=%errorlevel%"
+if not "%EXPORT_RC%"=="0" (
     echo.
-    echo ERROR: wsl --export failed.
+    echo ERROR: wsl --export failed with exit code %EXPORT_RC%.
+    exit /b 1
+)
+if not exist "%ARCHIVE_PATH%" (
+    echo.
+    echo ERROR: backup archive was not created: %ARCHIVE_PATH%
+    exit /b 1
+)
+for %%A in ("%ARCHIVE_PATH%") do set "ARCHIVE_SIZE=%%~zA"
+if "%ARCHIVE_SIZE%"=="0" (
+    echo.
+    echo ERROR: backup archive is empty: %ARCHIVE_PATH%
     exit /b 1
 )
 
@@ -332,7 +345,8 @@ if not defined BIDX goto choose_backup
 if errorlevel 1 goto choose_backup
 if !BIDXN! LSS 1 goto choose_backup
 if !BIDXN! GTR !BACKUP_COUNT! goto choose_backup
-set "BACKUP_FILE=!BACKUP_!BIDXN!!"
+call set "BACKUP_FILE=%%BACKUP_%BIDXN%%%"
+if not defined BACKUP_FILE goto choose_backup
 exit /b 0
 
 :validate_backup_file
