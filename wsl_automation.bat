@@ -9,6 +9,9 @@ set "RESTORE_AS="
 set "INSTALL_PATH="
 set "TARGET_LTS="
 set "SKIP_PRE_UPGRADE_BACKUP=0"
+set "AUTO_PAUSE=1"
+set "HELP_ONLY=0"
+set "RET=0"
 
 if /I "%~1"=="backup" (
     set "ACTION=backup"
@@ -73,8 +76,19 @@ if /I "%~1"=="--skip-pre-upgrade-backup" (
     shift
     goto parse_args
 )
-if /I "%~1"=="--help" goto show_help
-if /I "%~1"=="-h" goto show_help
+if /I "%~1"=="--no-pause" (
+    set "AUTO_PAUSE=0"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--help" (
+    set "HELP_ONLY=1"
+    goto show_help
+)
+if /I "%~1"=="-h" (
+    set "HELP_ONLY=1"
+    goto show_help
+)
 
 echo.
 echo ERROR: Unknown argument "%~1"
@@ -87,29 +101,39 @@ where wsl.exe >nul 2>nul
 if errorlevel 1 (
     echo.
     echo ERROR: wsl.exe not found. Run this script on Windows with WSL installed.
-    exit /b 1
+    set "RET=1"
+    goto script_end
 )
 
-if /I "%ACTION%"=="backup" (
-    call :ActionBackup
-    exit /b %errorlevel%
-)
-if /I "%ACTION%"=="restore" (
-    call :ActionRestore
-    exit /b %errorlevel%
-)
-if /I "%ACTION%"=="upgrade" (
-    call :ActionUpgrade
-    exit /b %errorlevel%
-)
-if /I "%ACTION%"=="menu" (
-    call :ActionMenu
-    exit /b %errorlevel%
-)
+if /I "%ACTION%"=="backup" goto run_backup
+if /I "%ACTION%"=="restore" goto run_restore
+if /I "%ACTION%"=="upgrade" goto run_upgrade
+if /I "%ACTION%"=="menu" goto run_menu
 
 echo.
 echo ERROR: Unsupported action "%ACTION%"
+set "RET=1"
 goto show_help
+
+:run_backup
+call :ActionBackup
+set "RET=%errorlevel%"
+goto script_end
+
+:run_restore
+call :ActionRestore
+set "RET=%errorlevel%"
+goto script_end
+
+:run_upgrade
+call :ActionUpgrade
+set "RET=%errorlevel%"
+goto script_end
+
+:run_menu
+call :ActionMenu
+set "RET=%errorlevel%"
+goto script_end
 
 :show_help
 echo.
@@ -125,13 +149,37 @@ echo   --restore-as ^<new distro name when restore^>
 echo   --install-path ^<path used by wsl --import^>
 echo   --target-lts ^<20.04^|22.04^|24.04...^>
 echo   --skip-pre-upgrade-backup
+echo   --no-pause
 echo.
 echo Examples:
 echo   wsl_automation.bat
 echo   wsl_automation.bat backup --distro Ubuntu --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
-exit /b 1
+if "%HELP_ONLY%"=="1" (
+    set "RET=0"
+) else (
+    set "RET=1"
+)
+goto script_end
+
+:script_end
+if not defined RET set "RET=0"
+call :FinalizeAndExit %RET%
+
+:FinalizeAndExit
+set "FINAL_CODE=%~1"
+echo.
+if "%FINAL_CODE%"=="0" (
+    echo 执行完成，返回码: 0
+) else (
+    echo 执行失败，返回码: %FINAL_CODE%
+)
+if "%AUTO_PAUSE%"=="1" (
+    echo.
+    pause
+)
+endlocal & exit /b %FINAL_CODE%
 
 :PrintSection
 echo.
