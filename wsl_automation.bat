@@ -485,14 +485,19 @@ exit /b 0
 
 :AssertUbuntuDistro
 set "UBUNTU_ID="
-for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc ". /etc/os-release; echo ${ID}" 2^>nul') do set "UBUNTU_ID=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id=(wsl.exe -d $d -u root -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null | Select-Object -First 1); if(-not $id){ $id=(wsl.exe -d $d -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null | Select-Object -First 1) }; if($id){ ($id.ToString() -replace [char]0,'').Trim().ToLower() }"`) do set "UBUNTU_ID=%%i"
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
-if /I not "%UBUNTU_ID%"=="ubuntu" (
-    echo.
-    echo ERROR: Distro "%DISTRO%" is not Ubuntu.
-    exit /b 1
+if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
+
+REM Fallback for environments where os-release probing fails unexpectedly.
+if /I "%DISTRO:~0,6%"=="Ubuntu" (
+    call :Debug "AssertUbuntuDistro fallback matched distro name prefix"
+    exit /b 0
 )
-exit /b 0
+
+echo.
+echo ERROR: Distro "%DISTRO%" is not Ubuntu.
+exit /b 1
 
 :VersionToInt
 set "TMP_VER=%~1"
@@ -731,12 +736,14 @@ if "%MENU_CHOICE%"=="1" (
     set "DISTRO="
     set "BACKUP_DIR="
     call :ActionBackup
-    exit /b %errorlevel%
+    set "MENU_RC=!errorlevel!"
+    exit /b !MENU_RC!
 )
 if "%MENU_CHOICE%"=="2" (
     set "ACTION=restore"
     call :ActionRestore
-    exit /b %errorlevel%
+    set "MENU_RC=!errorlevel!"
+    exit /b !MENU_RC!
 )
 if "%MENU_CHOICE%"=="3" (
     set "ACTION=upgrade"
@@ -745,7 +752,8 @@ if "%MENU_CHOICE%"=="3" (
         set /p "TARGET_LTS=Target LTS version (optional, e.g. 24.04): "
     )
     call :ActionUpgrade
-    exit /b %errorlevel%
+    set "MENU_RC=!errorlevel!"
+    exit /b !MENU_RC!
 )
 
 echo.
