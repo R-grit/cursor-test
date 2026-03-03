@@ -635,13 +635,15 @@ if errorlevel 1 (
     echo ERROR: Distro "%DISTRO%" not found.
     exit /b 1
 )
-wsl.exe --distribution "%DISTRO%" -- bash -lc "true" >nul 2>nul
+wsl.exe -d "%DISTRO%" -u root -- bash -lc "true" >nul 2>nul
 set "DISTRO_CHECK_RC=%errorlevel%"
 call :DebugKV "EnsureDistroAccessible.rc" "%DISTRO_CHECK_RC%"
 if "%DISTRO_CHECK_RC%"=="0" exit /b 0
 
 echo.
 echo ERROR: Cannot execute commands in distro "%DISTRO%".
+echo Diagnostic output:
+wsl.exe -d "%DISTRO%" -u root -- bash -lc "echo ok"
 echo Please check this distro is healthy: wsl -d "%DISTRO%" -- bash -lc "echo ok"
 exit /b 1
 
@@ -654,7 +656,7 @@ if errorlevel 1 (
     exit /b 1
 )
 call :DebugKV "RunWslRoot.distro" "%DISTRO%"
-wsl.exe --distribution "%DISTRO%" --user root -- bash -lc "%WSL_CMD%"
+wsl.exe -d "%DISTRO%" -u root -- bash -lc "%WSL_CMD%"
 set "WSL_RC=%errorlevel%"
 call :DebugKV "RunWslRoot.rc" "%WSL_RC%"
 if "%WSL_RC%"=="0" exit /b 0
@@ -665,7 +667,7 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $v = wsl.exe --distribution $d -- bash -lc 'if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi' 2>$null; if($LASTEXITCODE -eq 0 -and $v){ (($v | Select-Object -First 1).ToString() -replace [char]0,'').Trim() }"`) do set "UBUNTU_VERSION=%%v"
+for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $v = wsl.exe -d $d -u root -- bash -lc 'if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi' 2>$null; if($LASTEXITCODE -eq 0 -and $v){ (($v | Select-Object -First 1).ToString() -replace [char]0,'').Trim() }"`) do set "UBUNTU_VERSION=%%v"
 call :DebugKV "GetUbuntuVersion.value" "%UBUNTU_VERSION%"
 if not defined UBUNTU_VERSION exit /b 1
 echo %UBUNTU_VERSION% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
@@ -680,7 +682,7 @@ exit /b 0
 set "UBUNTU_ID="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id = wsl.exe --distribution $d -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null; if($LASTEXITCODE -eq 0 -and $id){ (($id | Select-Object -First 1).ToString() -replace [char]0,'').Trim().ToLower() }"`) do set "UBUNTU_ID=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id = wsl.exe -d $d -u root -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null; if($LASTEXITCODE -eq 0 -and $id){ (($id | Select-Object -First 1).ToString() -replace [char]0,'').Trim().ToLower() }"`) do set "UBUNTU_ID=%%i"
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
 
@@ -707,7 +709,7 @@ if errorlevel 1 (
     exit /b 0
 )
 call :DebugKV "RunReleaseUpgradeOnce.distro" "%DISTRO%"
-wsl.exe --distribution "%DISTRO%" --user root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
+wsl.exe -d "%DISTRO%" -u root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
 set "UPGRADE_EXIT_CODE=%errorlevel%"
 call :DebugKV "RunReleaseUpgradeOnce.rc" "%UPGRADE_EXIT_CODE%"
 wsl.exe --terminate "%DISTRO%" >nul 2>nul
