@@ -11,6 +11,7 @@
 ### 脚本位置
 
 - `wsl_automation.bat`
+- `wsl_automation_cli.ps1`（`.bat` 调用的稳定执行入口）
 
 ### 快速使用
 
@@ -39,9 +40,6 @@ wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --skip-pre-u
 :: 原地升级并保留当前环境（用户配置/软件/VSCode Server 等）
 wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --preserve-current
 
-:: 如需在克隆副本上升级（原发行版完全不变）
-wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --upgrade-on-clone
-
 :: 调试模式（打印关键变量和返回码）
 wsl_automation.bat backup --debug
 ```
@@ -54,8 +52,7 @@ wsl_automation.bat backup --debug
 - 原地升级时，升级前备份会先询问确认（`Create pre-upgrade backup now? [y/N]`，默认 No）。
 - 可用 `--force-pre-upgrade-backup` 强制备份，或 `--skip-pre-upgrade-backup` 始终跳过备份。
 - 升级前的 WSL 导出备份用于回滚，避免误操作导致环境不可恢复。
-- 如需在克隆副本上升级、并让原发行版完全不变，可使用 `--upgrade-on-clone`。
-- 可用 `--upgrade-clone-name` / `--upgrade-clone-path` 自定义升级克隆名称和目录。
+- 为优先保证稳定性，当前 `.bat` 走 PowerShell 稳定执行入口；复杂 clone 升级参数会回退为原地升级并给出提示。
 - `--target-lts` 格式示例：`20.04`、`22.04`、`24.04`。
 - 兼容 `--target-tls` 写法（等价于 `--target-lts`）。
 - 恢复使用 `wsl --import`，导入后默认用户可能是 root，可按需再设置。
