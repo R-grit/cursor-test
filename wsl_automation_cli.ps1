@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$RunnerVersion = "ps-cli-1"
 
 function Show-Help {
     Write-Host ""
@@ -197,6 +198,7 @@ if ($cfg.Action -eq "menu") {
 }
 
 Write-DebugLine -Enabled $cfg.Debug -Name "ACTION" -Value ([string]$cfg.Action)
+Write-DebugLine -Enabled $cfg.Debug -Name "CLI_RUNNER_VERSION" -Value $RunnerVersion
 Write-DebugLine -Enabled $cfg.Debug -Name "DISTRO" -Value ([string]$cfg.Distro)
 Write-DebugLine -Enabled $cfg.Debug -Name "BACKUP_DIR" -Value ([string]$cfg.BackupDir)
 Write-DebugLine -Enabled $cfg.Debug -Name "BACKUP_FILE" -Value ([string]$cfg.BackupFile)

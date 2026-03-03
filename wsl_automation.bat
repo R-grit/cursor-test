@@ -4,6 +4,8 @@ setlocal EnableExtensions
 set "SCRIPT_DIR=%~dp0"
 set "CLI_PS1=%SCRIPT_DIR%wsl_automation_cli.ps1"
 set "AUTO_PAUSE=1"
+set "DEBUG=0"
+set "RUNNER_VERSION=stable-ps-runner-1"
 
 if not exist "%CLI_PS1%" (
     echo.
@@ -14,8 +16,10 @@ if not exist "%CLI_PS1%" (
 
 for %%A in (%*) do (
     if /I "%%~A"=="--no-pause" set "AUTO_PAUSE=0"
+    if /I "%%~A"=="--debug" set "DEBUG=1"
 )
 
+if "%DEBUG%"=="1" echo [DEBUG] BAT_RUNNER_VERSION=%RUNNER_VERSION%
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%CLI_PS1%" %*
 set "RC=%errorlevel%"
 
