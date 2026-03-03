@@ -305,6 +305,17 @@ if defined SOQ_VAL (
 )
 exit /b 0
 
+:ExtractVersionFromDistroName
+set "EVDN_INPUT=%~1"
+set "%~2="
+set "EVDN_CAND="
+for /f "tokens=2 delims=-_ " %%x in ("%EVDN_INPUT%") do set "EVDN_CAND=%%x"
+if defined EVDN_CAND (
+    echo %EVDN_CAND% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
+    if not errorlevel 1 set "%~2=%EVDN_CAND%"
+)
+exit /b 0
+
 :CanonicalizeDistro
 if not defined DISTRO exit /b 1
 call :NormalizeSimpleVar DISTRO
@@ -696,12 +707,14 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "grep '^VERSION_ID=' /etc/os-release 2>/dev/null | head -n 1 | cut -d= -f2 | tr -d '\"'" 2^>nul') do set "UBUNTU_VERSION=%%v"
-if not defined UBUNTU_VERSION (
-    for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "lsb_release -rs 2>/dev/null" 2^>nul') do set "UBUNTU_VERSION=%%v"
+for /f "tokens=1,* delims==" %%A in ('wsl.exe -d "%DISTRO%" -u root -- cat /etc/os-release 2^>nul') do (
+    if /I "%%A"=="VERSION_ID" set "UBUNTU_VERSION=%%B"
 )
 if not defined UBUNTU_VERSION (
-    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$d=[string]$env:DISTRO; if($d -match '(?i)ubuntu[-_ ]?([0-9]{2}\.[0-9]{2})'){ $matches[1] }"`) do set "UBUNTU_VERSION=%%v"
+    for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- lsb_release -rs 2^>nul') do set "UBUNTU_VERSION=%%v"
+)
+if not defined UBUNTU_VERSION (
+    call :ExtractVersionFromDistroName "%DISTRO%" UBUNTU_VERSION
     if defined UBUNTU_VERSION call :Debug "GetUbuntuVersion fallback from distro name"
 )
 call :NormalizeSimpleVar UBUNTU_VERSION
@@ -725,7 +738,11 @@ if /I "%DISTRO:~0,6%"=="Ubuntu" (
     call :Debug "AssertUbuntuDistro fallback matched distro name prefix"
     exit /b 0
 )
-for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "grep '^ID=' /etc/os-release 2>/dev/null | head -n 1 | cut -d= -f2 | tr -d '\"' | tr 'A-Z' 'a-z'" 2^>nul') do set "UBUNTU_ID=%%i"
+for /f "tokens=1,* delims==" %%A in ('wsl.exe -d "%DISTRO%" -u root -- cat /etc/os-release 2^>nul') do (
+    if /I "%%A"=="ID" set "UBUNTU_ID=%%B"
+)
+call :NormalizeSimpleVar UBUNTU_ID
+call :StripOuterQuotes UBUNTU_ID
 call :NormalizeSimpleVar UBUNTU_ID
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
