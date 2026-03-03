@@ -310,10 +310,14 @@ set "EVDN_INPUT=%~1"
 set "%~2="
 set "EVDN_CAND="
 for /f "tokens=2 delims=-_ " %%x in ("%EVDN_INPUT%") do set "EVDN_CAND=%%x"
-if defined EVDN_CAND (
-    echo %EVDN_CAND% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
-    if not errorlevel 1 set "%~2=%EVDN_CAND%"
-)
+if not defined EVDN_CAND exit /b 0
+call :NormalizeSimpleVar EVDN_CAND
+call :StripOuterQuotes EVDN_CAND
+call :NormalizeSimpleVar EVDN_CAND
+echo %EVDN_CAND% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
+if errorlevel 1 exit /b 0
+set "%~2=%EVDN_CAND%"
+call :DebugKV "ExtractVersionFromDistroName.value" "%EVDN_CAND%"
 exit /b 0
 
 :CanonicalizeDistro
