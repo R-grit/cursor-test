@@ -309,7 +309,11 @@ exit /b 0
 set "EVDN_INPUT=%~1"
 set "%~2="
 set "EVDN_CAND="
-for /f "tokens=2 delims=-_ " %%x in ("%EVDN_INPUT%") do set "EVDN_CAND=%%x"
+if /I "%EVDN_INPUT:~0,7%"=="Ubuntu-" (
+    set "EVDN_CAND=%EVDN_INPUT:~7%"
+) else (
+    for /f "tokens=2 delims=-_ " %%x in ("%EVDN_INPUT%") do set "EVDN_CAND=%%x"
+)
 if not defined EVDN_CAND exit /b 0
 call :NormalizeSimpleVar EVDN_CAND
 call :StripOuterQuotes EVDN_CAND
@@ -714,13 +718,25 @@ if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
 call :ExtractVersionFromDistroName "%DISTRO%" UBUNTU_VERSION_FALLBACK
 call :DebugKV "GetUbuntuVersion.name_fallback" "%UBUNTU_VERSION_FALLBACK%"
+if defined UBUNTU_VERSION_FALLBACK (
+    set "UBUNTU_VERSION=%UBUNTU_VERSION_FALLBACK%"
+    call :Debug "GetUbuntuVersion use name fallback first"
+)
 
-set "TMP_LSB=%TEMP%\wsl_lsb_%RANDOM%_%RANDOM%.tmp"
-wsl.exe -d "%DISTRO%" -u root -- lsb_release -rs > "%TMP_LSB%" 2>nul
-set "LSB_RC=%errorlevel%"
-call :DebugKV "GetUbuntuVersion.lsb_rc" "%LSB_RC%"
-if "%LSB_RC%"=="0" if exist "%TMP_LSB%" set /p "UBUNTU_VERSION="<"%TMP_LSB%"
-if exist "%TMP_LSB%" del /f /q "%TMP_LSB%" >nul 2>nul
+if not defined UBUNTU_VERSION (
+    set "TMP_LSB=%TEMP%\wsl_lsb_%RANDOM%_%RANDOM%.tmp"
+    wsl.exe -d "%DISTRO%" -u root -- lsb_release -rs > "%TMP_LSB%" 2>nul
+    set "LSB_RC=%errorlevel%"
+    call :DebugKV "GetUbuntuVersion.lsb_rc" "%LSB_RC%"
+    if "%LSB_RC%"=="0" (
+        if exist "%TMP_LSB%" (
+            for /f "usebackq delims=" %%v in ("%TMP_LSB%") do (
+                if not defined UBUNTU_VERSION set "UBUNTU_VERSION=%%v"
+            )
+        )
+    )
+    if exist "%TMP_LSB%" del /f /q "%TMP_LSB%" >nul 2>nul
+)
 
 if not defined UBUNTU_VERSION if defined UBUNTU_VERSION_FALLBACK set "UBUNTU_VERSION=%UBUNTU_VERSION_FALLBACK%"
 if not defined UBUNTU_VERSION exit /b 1
@@ -749,7 +765,13 @@ set "TMP_LSB_ID=%TEMP%\wsl_lsb_id_%RANDOM%_%RANDOM%.tmp"
 wsl.exe -d "%DISTRO%" -u root -- lsb_release -is > "%TMP_LSB_ID%" 2>nul
 set "LSB_ID_RC=%errorlevel%"
 call :DebugKV "AssertUbuntuDistro.lsb_rc" "%LSB_ID_RC%"
-if "%LSB_ID_RC%"=="0" if exist "%TMP_LSB_ID%" set /p "UBUNTU_ID="<"%TMP_LSB_ID%"
+if "%LSB_ID_RC%"=="0" (
+    if exist "%TMP_LSB_ID%" (
+        for /f "usebackq delims=" %%i in ("%TMP_LSB_ID%") do (
+            if not defined UBUNTU_ID set "UBUNTU_ID=%%i"
+        )
+    )
+)
 if exist "%TMP_LSB_ID%" del /f /q "%TMP_LSB_ID%" >nul 2>nul
 
 call :NormalizeSimpleVar UBUNTU_ID
