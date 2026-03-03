@@ -43,16 +43,43 @@ function Get-SafeFileName {
     return ($Name -replace "[^a-zA-Z0-9._-]", "_")
 }
 
+function Normalize-Token {
+    param([string]$Text)
+    if ($null -eq $Text) {
+        return ""
+    }
+    $clean = $Text -replace '[\x00-\x1F\x7F]', ''
+    $clean = $clean -replace '\p{Cf}', ''
+    return $clean.Trim().Trim('"')
+}
+
 function Get-WslDistros {
     $items = @()
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     $raw = @(& wsl.exe -l -q 2>$null)
     foreach ($line in $raw) {
-        $v = $line.Trim()
-        if (-not [string]::IsNullOrWhiteSpace($v)) {
+        $v = Normalize-Token -Text $line
+        if ((-not [string]::IsNullOrWhiteSpace($v)) -and $seen.Add($v)) {
             $items += $v
         }
     }
     return $items
+}
+
+function Resolve-CanonicalDistro {
+    param([string]$InputName)
+    $normalizedInput = Normalize-Token -Text $InputName
+    if ([string]::IsNullOrWhiteSpace($normalizedInput)) {
+        throw "Distro name is empty."
+    }
+    $distros = Get-WslDistros
+    $match = $distros | Where-Object {
+        (Normalize-Token -Text $_).Equals($normalizedInput, [System.StringComparison]::OrdinalIgnoreCase)
+    } | Select-Object -First 1
+    if ($null -eq $match) {
+        throw "Distro '$InputName' not found."
+    }
+    return [string]$match
 }
 
 function Select-FromList {
@@ -85,14 +112,11 @@ function Resolve-DistroName {
         throw "No WSL distro found."
     }
     if (-not [string]::IsNullOrWhiteSpace($InputName)) {
-        $match = $distros | Where-Object { $_.Equals($InputName, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
-        if ($null -eq $match) {
-            throw "Distro '$InputName' not found."
-        }
-        return [string]$match
+        return (Resolve-CanonicalDistro -InputName $InputName)
     }
     Write-Section "Available WSL distros"
-    return (Select-FromList -Items $distros -LabelBuilder { param($x) $x } -Prompt "Choose distro")
+    $selected = Select-FromList -Items $distros -LabelBuilder { param($x) $x } -Prompt "Choose distro"
+    return (Resolve-CanonicalDistro -InputName $selected)
 }
 
 function Invoke-WslCapture {
@@ -102,7 +126,8 @@ function Invoke-WslCapture {
         [switch]$AsRoot,
         [switch]$AllowFailure
     )
-    $args = @("-d", $Distro)
+    $resolved = Resolve-CanonicalDistro -InputName $Distro
+    $args = @("-d", $resolved)
     if ($AsRoot) { $args += @("-u", "root") }
     $args += @("--", "bash", "-lc", $Command)
     $output = & wsl.exe @args 2>&1
@@ -124,7 +149,8 @@ function Invoke-WslLive {
         [switch]$AsRoot,
         [switch]$AllowFailure
     )
-    $args = @("-d", $Distro)
+    $resolved = Resolve-CanonicalDistro -InputName $Distro
+    $args = @("-d", $resolved)
     if ($AsRoot) { $args += @("-u", "root") }
     $args += @("--", "bash", "-lc", $Command)
     & wsl.exe @args
@@ -137,7 +163,8 @@ function Invoke-WslLive {
 
 function Try-ExtractVersionFromDistroName {
     param([string]$Distro)
-    if ($Distro -match "(?i)ubuntu[-_ ]?([0-9]{2}\.[0-9]{2})") {
+    $name = Normalize-Token -Text $Distro
+    if ($name -match "(?i)ubuntu[-_ ]?([0-9]{2}\.[0-9]{2})") {
         return $Matches[1]
     }
     return $null
@@ -147,7 +174,7 @@ function Get-UbuntuVersion {
     param([string]$Distro)
     $result = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "lsb_release -rs 2>/dev/null"
     if ($result.Code -eq 0 -and -not [string]::IsNullOrWhiteSpace($result.Text)) {
-        $v = $result.Text.Split("`n")[0].Trim()
+        $v = $result.Text -split "`r?`n" | ForEach-Object { Normalize-Token -Text $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
         if ($v -match "^[0-9]+\.[0-9]+$") {
             return $v
         }
@@ -161,11 +188,13 @@ function Get-UbuntuVersion {
 
 function Assert-UbuntuDistro {
     param([string]$Distro)
-    if ($Distro -match "^(?i)ubuntu([-_ ].*)?$") {
+    $name = Normalize-Token -Text $Distro
+    if ($name -match "^(?i)ubuntu([-_ ].*)?$") {
         return
     }
     $r = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "lsb_release -is 2>/dev/null"
-    if ($r.Code -eq 0 -and $r.Text.Trim().ToLowerInvariant() -eq "ubuntu") {
+    $id = $r.Text -split "`r?`n" | ForEach-Object { Normalize-Token -Text $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if ($r.Code -eq 0 -and (-not [string]::IsNullOrWhiteSpace($id)) -and $id.Equals("ubuntu", [System.StringComparison]::OrdinalIgnoreCase)) {
         return
     }
     throw "Distro '$Distro' is not Ubuntu."
@@ -176,6 +205,7 @@ function Backup-WslDistro {
         [string]$Distro,
         [string]$BackupDir
     )
+    $Distro = Resolve-CanonicalDistro -InputName $Distro
     Ensure-Directory -Path $BackupDir
     $safe = Get-SafeFileName -Name $Distro
     $ts = Get-Date -Format "yyyyMMdd_HHmmss"
