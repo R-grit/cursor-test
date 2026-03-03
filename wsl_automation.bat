@@ -9,6 +9,7 @@ set "RESTORE_AS="
 set "INSTALL_PATH="
 set "TARGET_LTS="
 set "SKIP_PRE_UPGRADE_BACKUP=0"
+set "PRE_UPGRADE_BACKUP_PROMPT=1"
 set "AUTO_PAUSE=1"
 set "DEBUG=0"
 set "UPGRADE_ON_CLONE=0"
@@ -95,6 +96,18 @@ if /I "%~1"=="--upgrade-clone-path" (
 )
 if /I "%~1"=="--skip-pre-upgrade-backup" (
     set "SKIP_PRE_UPGRADE_BACKUP=1"
+    set "PRE_UPGRADE_BACKUP_PROMPT=0"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--force-pre-upgrade-backup" (
+    set "SKIP_PRE_UPGRADE_BACKUP=0"
+    set "PRE_UPGRADE_BACKUP_PROMPT=0"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--ask-pre-upgrade-backup" (
+    set "PRE_UPGRADE_BACKUP_PROMPT=1"
     shift
     goto parse_args
 )
@@ -156,6 +169,7 @@ call :DebugKV "RESTORE_AS" "%RESTORE_AS%"
 call :DebugKV "INSTALL_PATH" "%INSTALL_PATH%"
 call :DebugKV "TARGET_LTS" "%TARGET_LTS%"
 call :DebugKV "SKIP_PRE_UPGRADE_BACKUP" "%SKIP_PRE_UPGRADE_BACKUP%"
+call :DebugKV "PRE_UPGRADE_BACKUP_PROMPT" "%PRE_UPGRADE_BACKUP_PROMPT%"
 call :DebugKV "AUTO_PAUSE" "%AUTO_PAUSE%"
 call :DebugKV "DEBUG" "%DEBUG%"
 call :DebugKV "UPGRADE_ON_CLONE" "%UPGRADE_ON_CLONE%"
@@ -215,6 +229,8 @@ echo   --install-path ^<path used by wsl --import^>
 echo   --target-lts ^<20.04^|22.04^|24.04...^>
 echo   --target-tls ^<alias of --target-lts^>
 echo   --skip-pre-upgrade-backup
+echo   --force-pre-upgrade-backup
+echo   --ask-pre-upgrade-backup
 echo   --preserve-current ^<default, in-place upgrade on current distro^>
 echo   --in-place-upgrade ^<alias of --preserve-current^>
 echo   --upgrade-on-clone ^<upgrade imported clone; keep source unchanged^>
@@ -228,6 +244,7 @@ echo   wsl_automation.bat
 echo   wsl_automation.bat backup --distro Ubuntu --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
+echo   wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --force-pre-upgrade-backup
 echo   wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --preserve-current
 echo   wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --upgrade-on-clone
 echo   wsl_automation.bat backup --debug
@@ -741,8 +758,10 @@ if errorlevel 1 exit /b 1
 
 set "UPGRADE_SOURCE_DISTRO=%DISTRO%"
 set "UPGRADE_SKIP_BACKUP=%SKIP_PRE_UPGRADE_BACKUP%"
+set "UPGRADE_BACKUP_PROMPT=%PRE_UPGRADE_BACKUP_PROMPT%"
 call :DebugKV "ActionUpgrade.source_distro" "%UPGRADE_SOURCE_DISTRO%"
 call :DebugKV "ActionUpgrade.upgrade_on_clone" "%UPGRADE_ON_CLONE%"
+call :DebugKV "ActionUpgrade.backup_prompt" "%UPGRADE_BACKUP_PROMPT%"
 
 if "%UPGRADE_ON_CLONE%"=="1" (
     call :AssertUbuntuDistro
@@ -770,6 +789,7 @@ if "%UPGRADE_ON_CLONE%"=="1" (
 
     set "DISTRO=!CLONE_DISTRO!"
     set "UPGRADE_SKIP_BACKUP=1"
+    set "UPGRADE_BACKUP_PROMPT=0"
     echo.
     echo Source distro remains unchanged: !UPGRADE_SOURCE_DISTRO!
     echo Upgrade will run on cloned distro: !DISTRO!
@@ -778,6 +798,19 @@ if "%UPGRADE_ON_CLONE%"=="0" (
     echo.
     echo In-place upgrade mode on distro: %DISTRO%
     echo Existing users, home configs and installed software are kept in this distro.
+    if "!UPGRADE_SKIP_BACKUP!"=="0" (
+        if "!UPGRADE_BACKUP_PROMPT!"=="1" (
+            echo.
+            set "BACKUP_CONFIRM="
+            set /p "BACKUP_CONFIRM=Create pre-upgrade backup now? [y/N]: "
+            call :NormalizeSimpleVar BACKUP_CONFIRM
+            call :DebugKV "ActionUpgrade.backup_confirm" "!BACKUP_CONFIRM!"
+            if /I not "!BACKUP_CONFIRM!"=="y" if /I not "!BACKUP_CONFIRM!"=="yes" (
+                set "UPGRADE_SKIP_BACKUP=1"
+                echo Pre-upgrade backup skipped by confirmation.
+            )
+        )
+    )
 )
 
 call :AssertUbuntuDistro
@@ -791,6 +824,7 @@ if errorlevel 1 (
 )
 echo Current Ubuntu version: %UBUNTU_VERSION%
 call :DebugKV "ActionUpgrade.current_version" "%UBUNTU_VERSION%"
+call :DebugKV "ActionUpgrade.effective_skip_backup" "%UPGRADE_SKIP_BACKUP%"
 
 if "%UPGRADE_SKIP_BACKUP%"=="0" (
     if not defined BACKUP_DIR (

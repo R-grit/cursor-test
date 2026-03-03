@@ -27,6 +27,15 @@ wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 :: 升级到指定 LTS（示例：24.04）
 wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
 
+:: 原地升级时，升级前备份改为确认制（默认 No，回车跳过）
+wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04
+
+:: 如需每次都强制做升级前备份
+wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --force-pre-upgrade-backup
+
+:: 如需始终跳过升级前备份
+wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --skip-pre-upgrade-backup
+
 :: 原地升级并保留当前环境（用户配置/软件/VSCode Server 等）
 wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --preserve-current
 
@@ -39,9 +48,11 @@ wsl_automation.bat backup --debug
 
 ### 说明
 
-- 升级动作默认会先做一次升级前备份，便于回滚。
+- 升级动作支持升级前备份；原地升级默认会先询问是否备份（默认 No）。
 - `upgrade` 默认是原地升级（等价 `--preserve-current`），即在当前发行版内升级，保留现有用户目录、软件与配置。
 - `--in-place-upgrade` 与 `--preserve-current` 等价（都表示原地升级）。
+- 原地升级时，升级前备份会先询问确认（`Create pre-upgrade backup now? [y/N]`，默认 No）。
+- 可用 `--force-pre-upgrade-backup` 强制备份，或 `--skip-pre-upgrade-backup` 始终跳过备份。
 - 升级前的 WSL 导出备份用于回滚，避免误操作导致环境不可恢复。
 - 如需在克隆副本上升级、并让原发行版完全不变，可使用 `--upgrade-on-clone`。
 - 可用 `--upgrade-clone-name` / `--upgrade-clone-path` 自定义升级克隆名称和目录。
