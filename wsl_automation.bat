@@ -628,6 +628,23 @@ if not "%CLONE_IMPORT_RC%"=="0" (
 echo Upgrade clone created: %CLONE_DISTRO%
 exit /b 0
 
+:EnsureDistroAccessible
+call :CanonicalizeDistro
+if errorlevel 1 (
+    echo.
+    echo ERROR: Distro "%DISTRO%" not found.
+    exit /b 1
+)
+wsl.exe --distribution "%DISTRO%" -- bash -lc "true" >nul 2>nul
+set "DISTRO_CHECK_RC=%errorlevel%"
+call :DebugKV "EnsureDistroAccessible.rc" "%DISTRO_CHECK_RC%"
+if "%DISTRO_CHECK_RC%"=="0" exit /b 0
+
+echo.
+echo ERROR: Cannot execute commands in distro "%DISTRO%".
+echo Please check this distro is healthy: wsl -d "%DISTRO%" -- bash -lc "echo ok"
+exit /b 1
+
 :RunWslRoot
 set "WSL_CMD=%~1"
 call :CanonicalizeDistro
@@ -648,8 +665,7 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "delims=" %%v in ('wsl.exe --distribution "%DISTRO%" -- bash -lc "if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi" 2^>nul') do set "UBUNTU_VERSION=%%v"
-call :NormalizeSimpleVar UBUNTU_VERSION
+for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $v = wsl.exe --distribution $d -- bash -lc 'if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi' 2>$null; if($LASTEXITCODE -eq 0 -and $v){ (($v | Select-Object -First 1).ToString() -replace [char]0,'').Trim() }"`) do set "UBUNTU_VERSION=%%v"
 call :DebugKV "GetUbuntuVersion.value" "%UBUNTU_VERSION%"
 if not defined UBUNTU_VERSION exit /b 1
 echo %UBUNTU_VERSION% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
@@ -664,13 +680,12 @@ exit /b 0
 set "UBUNTU_ID="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
-for /f "delims=" %%i in ('wsl.exe --distribution "%DISTRO%" -- bash -lc ". /etc/os-release 2>/dev/null; echo ${ID}" 2^>nul') do set "UBUNTU_ID=%%i"
-call :NormalizeSimpleVar UBUNTU_ID
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id = wsl.exe --distribution $d -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null; if($LASTEXITCODE -eq 0 -and $id){ (($id | Select-Object -First 1).ToString() -replace [char]0,'').Trim().ToLower() }"`) do set "UBUNTU_ID=%%i"
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
 
 echo.
-echo ERROR: Distro "%DISTRO%" is not Ubuntu.
+echo ERROR: Distro "%DISTRO%" is not Ubuntu or os-release cannot be read.
 exit /b 1
 
 :VersionToInt
@@ -754,6 +769,8 @@ exit /b 0
 :ActionUpgrade
 call :Debug "ActionUpgrade: start"
 call :ResolveDistro
+if errorlevel 1 exit /b 1
+call :EnsureDistroAccessible
 if errorlevel 1 exit /b 1
 
 set "UPGRADE_SOURCE_DISTRO=%DISTRO%"
