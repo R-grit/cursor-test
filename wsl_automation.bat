@@ -288,17 +288,32 @@ set "NV_NAME=%~1"
 if not defined NV_NAME exit /b 1
 call set "NV_VALUE=%%%NV_NAME%%%"
 if not defined NV_VALUE exit /b 0
-for /f "usebackq delims=" %%n in (`powershell -NoProfile -Command "$s=$env:NV_VALUE; if($null -eq $s){''} else { ($s -replace [char]0,'').Trim() }"`) do set "%NV_NAME%=%%n"
+for /f "usebackq delims=" %%n in (`powershell -NoProfile -Command "$s=[string]$env:NV_VALUE; if($null -eq $s){''} else { (($s -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()) }"`) do set "%NV_NAME%=%%n"
 exit /b 0
 
 :CanonicalizeDistro
 if not defined DISTRO exit /b 1
 call :NormalizeSimpleVar DISTRO
 set "CANONICAL_DISTRO="
-for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $target=$env:DISTRO; if(-not $target){exit 0}; $target=($target -replace [char]0,'').Trim(); $items=wsl.exe -l -q | ForEach-Object { ($_.ToString() -replace [char]0,'').Trim() } | Where-Object { $_ }; $m=$items | Where-Object { $_.Equals($target,[System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1; if($m){$m}"`) do set "CANONICAL_DISTRO=%%d"
+for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; function Clean([string]$x){ if($null -eq $x){ return '' }; return (($x -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()) }; $target=Clean($env:DISTRO); if(-not $target){exit 0}; $items=wsl.exe -l -q | ForEach-Object { Clean($_.ToString()) } | Where-Object { $_ }; $m=$items | Where-Object { $_.Equals($target,[System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1; if($m){$m}"`) do set "CANONICAL_DISTRO=%%d"
 if not defined CANONICAL_DISTRO exit /b 1
 set "DISTRO=%CANONICAL_DISTRO%"
 call :DebugKV "CanonicalizeDistro" "%DISTRO%"
+call :DebugHexVar DISTRO
+exit /b 0
+
+:DebugHexVar
+if not "%DEBUG%"=="1" exit /b 0
+set "DH_NAME=%~1"
+if not defined DH_NAME exit /b 0
+call set "DH_VAL=%%%DH_NAME%%%"
+if not defined DH_VAL (
+    echo [DEBUG] %DH_NAME%.hex=
+    exit /b 0
+)
+set "DH_HEX="
+for /f "usebackq delims=" %%h in (`powershell -NoProfile -Command "$s=[string]$env:DH_VAL; (($s.ToCharArray() | ForEach-Object { '{0:X4}' -f [int][char]$_ }) -join '-')"`) do set "DH_HEX=%%h"
+echo [DEBUG] %DH_NAME%.hex=%DH_HEX%
 exit /b 0
 
 :NormalizeBackupDir
@@ -635,7 +650,7 @@ if errorlevel 1 (
     echo ERROR: Distro "%DISTRO%" not found.
     exit /b 1
 )
-wsl.exe -d "%DISTRO%" -u root -- bash -lc "true" >nul 2>nul
+powershell -NoProfile -Command "$d=[string]$env:DISTRO; & wsl.exe -d $d -u root -- bash -lc 'true' > $null; exit $LASTEXITCODE" >nul 2>nul
 set "DISTRO_CHECK_RC=%errorlevel%"
 call :DebugKV "EnsureDistroAccessible.rc" "%DISTRO_CHECK_RC%"
 if "%DISTRO_CHECK_RC%"=="0" exit /b 0
@@ -643,7 +658,7 @@ if "%DISTRO_CHECK_RC%"=="0" exit /b 0
 echo.
 echo ERROR: Cannot execute commands in distro "%DISTRO%".
 echo Diagnostic output:
-wsl.exe -d "%DISTRO%" -u root -- bash -lc "echo ok"
+powershell -NoProfile -Command "$d=[string]$env:DISTRO; & wsl.exe -d $d -u root -- bash -lc 'echo ok'; exit $LASTEXITCODE"
 echo Please check this distro is healthy: wsl -d "%DISTRO%" -- bash -lc "echo ok"
 exit /b 1
 
@@ -656,7 +671,7 @@ if errorlevel 1 (
     exit /b 1
 )
 call :DebugKV "RunWslRoot.distro" "%DISTRO%"
-wsl.exe -d "%DISTRO%" -u root -- bash -lc "%WSL_CMD%"
+powershell -NoProfile -Command "$d=[string]$env:DISTRO; $c=[string]$env:WSL_CMD; & wsl.exe -d $d -u root -- bash -lc $c; exit $LASTEXITCODE"
 set "WSL_RC=%errorlevel%"
 call :DebugKV "RunWslRoot.rc" "%WSL_RC%"
 if "%WSL_RC%"=="0" exit /b 0
@@ -667,7 +682,7 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $v = wsl.exe -d $d -u root -- bash -lc 'if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi' 2>$null; if($LASTEXITCODE -eq 0 -and $v){ (($v | Select-Object -First 1).ToString() -replace [char]0,'').Trim() }"`) do set "UBUNTU_VERSION=%%v"
+for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $v = wsl.exe -d $d -u root -- bash -lc 'if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi' 2>$null; if($LASTEXITCODE -eq 0 -and $v){ ((($v | Select-Object -First 1).ToString() -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()) }"`) do set "UBUNTU_VERSION=%%v"
 call :DebugKV "GetUbuntuVersion.value" "%UBUNTU_VERSION%"
 if not defined UBUNTU_VERSION exit /b 1
 echo %UBUNTU_VERSION% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
@@ -682,7 +697,7 @@ exit /b 0
 set "UBUNTU_ID="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id = wsl.exe -d $d -u root -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null; if($LASTEXITCODE -eq 0 -and $id){ (($id | Select-Object -First 1).ToString() -replace [char]0,'').Trim().ToLower() }"`) do set "UBUNTU_ID=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id = wsl.exe -d $d -u root -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null; if($LASTEXITCODE -eq 0 -and $id){ ((($id | Select-Object -First 1).ToString() -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim().ToLower()) }"`) do set "UBUNTU_ID=%%i"
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
 
