@@ -291,6 +291,20 @@ if not defined NV_VALUE exit /b 0
 for /f "usebackq delims=" %%n in (`powershell -NoProfile -Command "$s=[string]$env:NV_VALUE; if($null -eq $s){''} else { (($s -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()) }"`) do set "%NV_NAME%=%%n"
 exit /b 0
 
+:StripOuterQuotes
+set "SOQ_NAME=%~1"
+if not defined SOQ_NAME exit /b 1
+if not defined %SOQ_NAME% exit /b 0
+call set "SOQ_VAL=%%%SOQ_NAME%%%"
+if defined SOQ_VAL (
+    if "%SOQ_VAL:~0,1%"=="\"" (
+        if "%SOQ_VAL:~-1%"=="\"" (
+            call set "%SOQ_NAME%=%%SOQ_VAL:~1,-1%%"
+        )
+    )
+)
+exit /b 0
+
 :CanonicalizeDistro
 if not defined DISTRO exit /b 1
 call :NormalizeSimpleVar DISTRO
@@ -682,14 +696,17 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=[string]$env:DISTRO; $lines = wsl.exe -d $d -u root -- cat /etc/os-release 2>$null; if($LASTEXITCODE -eq 0){ if($lines){ $line = $lines | Where-Object { $_ -like 'VERSION_ID=*' } | Select-Object -First 1; if($line){ $v=$line.Substring(11); $v=$v.Trim(); $v=$v.Trim('\"'); $v=(($v -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()); if($v){$v} } } }"`) do set "UBUNTU_VERSION=%%v"
+for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc ". /etc/os-release 2>/dev/null; echo ${VERSION_ID}" 2^>nul') do set "UBUNTU_VERSION=%%v"
 if not defined UBUNTU_VERSION (
-    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=[string]$env:DISTRO; $v = wsl.exe -d $d -u root -- bash -lc 'lsb_release -rs' 2>$null; if($LASTEXITCODE -eq 0){ if($v){ ((($v | Select-Object -First 1).ToString() -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()) } }"`) do set "UBUNTU_VERSION=%%v"
+    for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "lsb_release -rs 2>/dev/null" 2^>nul') do set "UBUNTU_VERSION=%%v"
 )
 if not defined UBUNTU_VERSION (
     for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$d=[string]$env:DISTRO; if($d -match '(?i)ubuntu[-_ ]?([0-9]{2}\.[0-9]{2})'){ $matches[1] }"`) do set "UBUNTU_VERSION=%%v"
     if defined UBUNTU_VERSION call :Debug "GetUbuntuVersion fallback from distro name"
 )
+call :NormalizeSimpleVar UBUNTU_VERSION
+call :StripOuterQuotes UBUNTU_VERSION
+call :NormalizeSimpleVar UBUNTU_VERSION
 call :DebugKV "GetUbuntuVersion.value" "%UBUNTU_VERSION%"
 if not defined UBUNTU_VERSION exit /b 1
 echo %UBUNTU_VERSION% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
@@ -704,7 +721,11 @@ exit /b 0
 set "UBUNTU_ID="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=[string]$env:DISTRO; $lines = wsl.exe -d $d -u root -- cat /etc/os-release 2>$null; if($LASTEXITCODE -eq 0){ if($lines){ $line = $lines | Where-Object { $_ -like 'ID=*' } | Select-Object -First 1; if($line){ $v=$line.Substring(3); $v=$v.Trim(); $v=$v.Trim('\"'); $v=(($v -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim().ToLower()); if($v){$v} } } }"`) do set "UBUNTU_ID=%%i"
+for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc ". /etc/os-release 2>/dev/null; echo ${ID}" 2^>nul') do set "UBUNTU_ID=%%i"
+call :NormalizeSimpleVar UBUNTU_ID
+call :StripOuterQuotes UBUNTU_ID
+call :NormalizeSimpleVar UBUNTU_ID
+if defined UBUNTU_ID for /f "delims=" %%i in ('powershell -NoProfile -Command "$x=[string]$env:UBUNTU_ID; $x.ToLower()"') do set "UBUNTU_ID=%%i"
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
 if /I "%DISTRO:~0,6%"=="Ubuntu" (
@@ -719,7 +740,7 @@ exit /b 1
 :VersionToInt
 set "TMP_VER=%~1"
 set "TMP_INT="
-for /f %%n in ('powershell -NoProfile -Command "$v=[version]$env:TMP_VER; [int]($v.Major*100 + $v.Minor)"') do set "TMP_INT=%%n"
+for /f %%n in ('powershell -NoProfile -Command "([int](([version]$env:TMP_VER).Major*100 + ([version]$env:TMP_VER).Minor))"') do set "TMP_INT=%%n"
 if not defined TMP_INT exit /b 1
 set "%~2=%TMP_INT%"
 exit /b 0
