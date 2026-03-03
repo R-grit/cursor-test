@@ -682,7 +682,14 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $v = wsl.exe -d $d -u root -- bash -lc 'if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi' 2>$null; if($LASTEXITCODE -eq 0 -and $v){ ((($v | Select-Object -First 1).ToString() -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()) }"`) do set "UBUNTU_VERSION=%%v"
+for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=[string]$env:DISTRO; $lines = wsl.exe -d $d -u root -- cat /etc/os-release 2>$null; if($LASTEXITCODE -eq 0 -and $lines){ $line = $lines | Where-Object { $_ -like 'VERSION_ID=*' } | Select-Object -First 1; if($line){ $v=$line.Substring(11).Trim(); if($v.Length -ge 2 -and $v.StartsWith('\"') -and $v.EndsWith('\"')){ $v=$v.Substring(1,$v.Length-2) }; $v=(($v -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()); if($v){$v} } }"`) do set "UBUNTU_VERSION=%%v"
+if not defined UBUNTU_VERSION (
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=[string]$env:DISTRO; $v = wsl.exe -d $d -u root -- bash -lc 'lsb_release -rs' 2>$null; if($LASTEXITCODE -eq 0 -and $v){ ((($v | Select-Object -First 1).ToString() -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim()) }"`) do set "UBUNTU_VERSION=%%v"
+)
+if not defined UBUNTU_VERSION (
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "$d=[string]$env:DISTRO; if($d -match '(?i)ubuntu[-_ ]?([0-9]{2}\.[0-9]{2})'){ $matches[1] }"`) do set "UBUNTU_VERSION=%%v"
+    if defined UBUNTU_VERSION call :Debug "GetUbuntuVersion fallback from distro name"
+)
 call :DebugKV "GetUbuntuVersion.value" "%UBUNTU_VERSION%"
 if not defined UBUNTU_VERSION exit /b 1
 echo %UBUNTU_VERSION% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
@@ -697,9 +704,13 @@ exit /b 0
 set "UBUNTU_ID="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id = wsl.exe -d $d -u root -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null; if($LASTEXITCODE -eq 0 -and $id){ ((($id | Select-Object -First 1).ToString() -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim().ToLower()) }"`) do set "UBUNTU_ID=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=[string]$env:DISTRO; $lines = wsl.exe -d $d -u root -- cat /etc/os-release 2>$null; if($LASTEXITCODE -eq 0 -and $lines){ $line = $lines | Where-Object { $_ -like 'ID=*' } | Select-Object -First 1; if($line){ $v=$line.Substring(3).Trim(); if($v.Length -ge 2 -and $v.StartsWith('\"') -and $v.EndsWith('\"')){ $v=$v.Substring(1,$v.Length-2) }; $v=(($v -replace '[\x00-\x1F\x7F]','' -replace '\p{Cf}','').Trim().ToLower()); if($v){$v} } }"`) do set "UBUNTU_ID=%%i"
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
+if /I "%DISTRO:~0,6%"=="Ubuntu" (
+    call :Debug "AssertUbuntuDistro fallback matched distro name prefix"
+    exit /b 0
+)
 
 echo.
 echo ERROR: Distro "%DISTRO%" is not Ubuntu or os-release cannot be read.
