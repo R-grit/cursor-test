@@ -707,12 +707,7 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "tokens=1,* delims==" %%A in ('wsl.exe -d "%DISTRO%" -u root -- cat /etc/os-release 2^>nul') do (
-    if /I "%%A"=="VERSION_ID" set "UBUNTU_VERSION=%%B"
-)
-if not defined UBUNTU_VERSION (
-    for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- lsb_release -rs 2^>nul') do set "UBUNTU_VERSION=%%v"
-)
+for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- lsb_release -rs 2^>nul') do set "UBUNTU_VERSION=%%v"
 if not defined UBUNTU_VERSION (
     call :ExtractVersionFromDistroName "%DISTRO%" UBUNTU_VERSION
     if defined UBUNTU_VERSION call :Debug "GetUbuntuVersion fallback from distro name"
@@ -738,9 +733,7 @@ if /I "%DISTRO:~0,6%"=="Ubuntu" (
     call :Debug "AssertUbuntuDistro fallback matched distro name prefix"
     exit /b 0
 )
-for /f "tokens=1,* delims==" %%A in ('wsl.exe -d "%DISTRO%" -u root -- cat /etc/os-release 2^>nul') do (
-    if /I "%%A"=="ID" set "UBUNTU_ID=%%B"
-)
+for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "lsb_release -is 2>/dev/null | tr A-Z a-z" 2^>nul') do set "UBUNTU_ID=%%i"
 call :NormalizeSimpleVar UBUNTU_ID
 call :StripOuterQuotes UBUNTU_ID
 call :NormalizeSimpleVar UBUNTU_ID
