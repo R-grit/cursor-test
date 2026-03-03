@@ -63,7 +63,7 @@ function Get-WslDistros {
             $items += $v
         }
     }
-    return $items
+    return @($items)
 }
 
 function Resolve-CanonicalDistro {
@@ -72,7 +72,7 @@ function Resolve-CanonicalDistro {
     if ([string]::IsNullOrWhiteSpace($normalizedInput)) {
         throw "Distro name is empty."
     }
-    $distros = Get-WslDistros
+    $distros = @(Get-WslDistros)
     $match = $distros | Where-Object {
         (Normalize-Token -Text $_).Equals($normalizedInput, [System.StringComparison]::OrdinalIgnoreCase)
     } | Select-Object -First 1
@@ -107,7 +107,7 @@ function Select-FromList {
 
 function Resolve-DistroName {
     param([string]$InputName)
-    $distros = Get-WslDistros
+    $distros = @(Get-WslDistros)
     if ($distros.Count -eq 0) {
         throw "No WSL distro found."
     }
@@ -309,7 +309,7 @@ function Restore-WslFromBackup {
         $TargetPath = if ([string]::IsNullOrWhiteSpace($in)) { $defaultPath } else { $in }
     }
 
-    $existing = Get-WslDistros
+    $existing = @(Get-WslDistros)
     if ($existing -contains $TargetName) {
         $ans = Read-Host "Distro '$TargetName' exists. Unregister first? [y/N]"
         if ($ans -match "^(?i:y|yes)$") {
