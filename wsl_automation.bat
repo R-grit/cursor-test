@@ -11,7 +11,7 @@ set "TARGET_LTS="
 set "SKIP_PRE_UPGRADE_BACKUP=0"
 set "AUTO_PAUSE=1"
 set "DEBUG=0"
-set "PRESERVE_CURRENT=1"
+set "UPGRADE_ON_CLONE=0"
 set "UPGRADE_CLONE_NAME="
 set "UPGRADE_CLONE_PATH="
 set "HELP_ONLY=0"
@@ -99,12 +99,17 @@ if /I "%~1"=="--skip-pre-upgrade-backup" (
     goto parse_args
 )
 if /I "%~1"=="--in-place-upgrade" (
-    set "PRESERVE_CURRENT=0"
+    set "UPGRADE_ON_CLONE=0"
     shift
     goto parse_args
 )
 if /I "%~1"=="--preserve-current" (
-    set "PRESERVE_CURRENT=1"
+    set "UPGRADE_ON_CLONE=0"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--upgrade-on-clone" (
+    set "UPGRADE_ON_CLONE=1"
     shift
     goto parse_args
 )
@@ -143,7 +148,7 @@ call :DebugKV "TARGET_LTS" "%TARGET_LTS%"
 call :DebugKV "SKIP_PRE_UPGRADE_BACKUP" "%SKIP_PRE_UPGRADE_BACKUP%"
 call :DebugKV "AUTO_PAUSE" "%AUTO_PAUSE%"
 call :DebugKV "DEBUG" "%DEBUG%"
-call :DebugKV "PRESERVE_CURRENT" "%PRESERVE_CURRENT%"
+call :DebugKV "UPGRADE_ON_CLONE" "%UPGRADE_ON_CLONE%"
 call :DebugKV "UPGRADE_CLONE_NAME" "%UPGRADE_CLONE_NAME%"
 call :DebugKV "UPGRADE_CLONE_PATH" "%UPGRADE_CLONE_PATH%"
 
@@ -200,8 +205,9 @@ echo   --install-path ^<path used by wsl --import^>
 echo   --target-lts ^<20.04^|22.04^|24.04...^>
 echo   --target-tls ^<alias of --target-lts^>
 echo   --skip-pre-upgrade-backup
-echo   --preserve-current
-echo   --in-place-upgrade
+echo   --preserve-current ^<default, in-place upgrade on current distro^>
+echo   --in-place-upgrade ^<alias of --preserve-current^>
+echo   --upgrade-on-clone ^<upgrade imported clone; keep source unchanged^>
 echo   --upgrade-clone-name ^<new distro name for safe upgrade clone^>
 echo   --upgrade-clone-path ^<install path for safe upgrade clone^>
 echo   --no-pause
@@ -213,6 +219,7 @@ echo   wsl_automation.bat backup --distro Ubuntu --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --preserve-current
+echo   wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --upgrade-on-clone
 echo   wsl_automation.bat backup --debug
 if "%HELP_ONLY%"=="1" (
     set "RET=0"
@@ -689,9 +696,9 @@ if errorlevel 1 exit /b 1
 set "UPGRADE_SOURCE_DISTRO=%DISTRO%"
 set "UPGRADE_SKIP_BACKUP=%SKIP_PRE_UPGRADE_BACKUP%"
 call :DebugKV "ActionUpgrade.source_distro" "%UPGRADE_SOURCE_DISTRO%"
-call :DebugKV "ActionUpgrade.preserve_current" "%PRESERVE_CURRENT%"
+call :DebugKV "ActionUpgrade.upgrade_on_clone" "%UPGRADE_ON_CLONE%"
 
-if "%PRESERVE_CURRENT%"=="1" (
+if "%UPGRADE_ON_CLONE%"=="1" (
     call :AssertUbuntuDistro
     if errorlevel 1 exit /b 1
 
@@ -702,7 +709,7 @@ if "%PRESERVE_CURRENT%"=="1" (
     call :DebugKV "ActionUpgrade.preserve.backup_dir" "!BACKUP_DIR!"
     if "%UPGRADE_SKIP_BACKUP%"=="1" (
         echo.
-        echo INFO: --skip-pre-upgrade-backup ignored because --preserve-current requires backup.
+        echo INFO: --skip-pre-upgrade-backup ignored because --upgrade-on-clone requires backup.
     )
 
     call :BackupCurrentDistro
@@ -718,8 +725,13 @@ if "%PRESERVE_CURRENT%"=="1" (
     set "DISTRO=!CLONE_DISTRO!"
     set "UPGRADE_SKIP_BACKUP=1"
     echo.
-    echo Source distro preserved: !UPGRADE_SOURCE_DISTRO!
-    echo Upgrade will run on clone: !DISTRO!
+    echo Source distro remains unchanged: !UPGRADE_SOURCE_DISTRO!
+    echo Upgrade will run on cloned distro: !DISTRO!
+)
+if "%UPGRADE_ON_CLONE%"=="0" (
+    echo.
+    echo In-place upgrade mode on distro: %DISTRO%
+    echo Existing users, home configs and installed software are kept in this distro.
 )
 
 call :AssertUbuntuDistro
