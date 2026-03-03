@@ -707,7 +707,28 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- lsb_release -rs 2^>nul') do set "UBUNTU_VERSION=%%v"
+
+set "TMP_OSR=%TEMP%\wsl_osr_%RANDOM%_%RANDOM%.tmp"
+wsl.exe -d "%DISTRO%" -u root -- cat /etc/os-release > "%TMP_OSR%" 2>nul
+set "OSR_RC=%errorlevel%"
+call :DebugKV "GetUbuntuVersion.osrelease_rc" "%OSR_RC%"
+if "%OSR_RC%"=="0" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%TMP_OSR%") do (
+        if /I "%%A"=="VERSION_ID" set "UBUNTU_VERSION=%%B"
+    )
+)
+if exist "%TMP_OSR%" del /f /q "%TMP_OSR%" >nul 2>nul
+
+if not defined UBUNTU_VERSION (
+    set "TMP_LSB=%TEMP%\wsl_lsb_%RANDOM%_%RANDOM%.tmp"
+    wsl.exe -d "%DISTRO%" -u root -- lsb_release -rs > "%TMP_LSB%" 2>nul
+    set "LSB_RC=%errorlevel%"
+    call :DebugKV "GetUbuntuVersion.lsb_rc" "%LSB_RC%"
+    if "%LSB_RC%"=="0" (
+        set /p "UBUNTU_VERSION="<"%TMP_LSB%"
+    )
+    if exist "%TMP_LSB%" del /f /q "%TMP_LSB%" >nul 2>nul
+)
 if not defined UBUNTU_VERSION (
     call :ExtractVersionFromDistroName "%DISTRO%" UBUNTU_VERSION
     if defined UBUNTU_VERSION call :Debug "GetUbuntuVersion fallback from distro name"
@@ -733,7 +754,29 @@ if /I "%DISTRO:~0,6%"=="Ubuntu" (
     call :Debug "AssertUbuntuDistro fallback matched distro name prefix"
     exit /b 0
 )
-for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "lsb_release -is 2>/dev/null | tr A-Z a-z" 2^>nul') do set "UBUNTU_ID=%%i"
+
+set "TMP_OSR_ID=%TEMP%\wsl_osr_id_%RANDOM%_%RANDOM%.tmp"
+wsl.exe -d "%DISTRO%" -u root -- cat /etc/os-release > "%TMP_OSR_ID%" 2>nul
+set "OSR_ID_RC=%errorlevel%"
+call :DebugKV "AssertUbuntuDistro.osrelease_rc" "%OSR_ID_RC%"
+if "%OSR_ID_RC%"=="0" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%TMP_OSR_ID%") do (
+        if /I "%%A"=="ID" set "UBUNTU_ID=%%B"
+    )
+)
+if exist "%TMP_OSR_ID%" del /f /q "%TMP_OSR_ID%" >nul 2>nul
+
+if not defined UBUNTU_ID (
+    set "TMP_LSB_ID=%TEMP%\wsl_lsb_id_%RANDOM%_%RANDOM%.tmp"
+    wsl.exe -d "%DISTRO%" -u root -- lsb_release -is > "%TMP_LSB_ID%" 2>nul
+    set "LSB_ID_RC=%errorlevel%"
+    call :DebugKV "AssertUbuntuDistro.lsb_rc" "%LSB_ID_RC%"
+    if "%LSB_ID_RC%"=="0" (
+        set /p "UBUNTU_ID="<"%TMP_LSB_ID%"
+    )
+    if exist "%TMP_LSB_ID%" del /f /q "%TMP_LSB_ID%" >nul 2>nul
+)
+
 call :NormalizeSimpleVar UBUNTU_ID
 call :StripOuterQuotes UBUNTU_ID
 call :NormalizeSimpleVar UBUNTU_ID
