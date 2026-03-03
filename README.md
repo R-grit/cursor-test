@@ -27,6 +27,12 @@ wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 :: 升级到指定 LTS（示例：24.04）
 wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
 
+:: 安全升级（默认保留原发行版，升级克隆副本）
+wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --preserve-current
+
+:: 如需直接原地升级（不保留原发行版）
+wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --in-place-upgrade
+
 :: 调试模式（打印关键变量和返回码）
 wsl_automation.bat backup --debug
 ```
@@ -34,7 +40,11 @@ wsl_automation.bat backup --debug
 ### 说明
 
 - 升级动作默认会先做一次升级前备份，便于回滚。
+- `upgrade` 默认启用 `--preserve-current`：先备份并导入克隆发行版，再升级克隆；原发行版保留不变。
+- 可用 `--upgrade-clone-name` / `--upgrade-clone-path` 自定义升级克隆名称和目录。
+- 如需原地升级可显式使用 `--in-place-upgrade`。
 - `--target-lts` 格式示例：`20.04`、`22.04`、`24.04`。
+- 兼容 `--target-tls` 写法（等价于 `--target-lts`）。
 - 恢复使用 `wsl --import`，导入后默认用户可能是 root，可按需再设置。
 - 脚本执行结束会显示返回码并暂停，方便查看结果；如需关闭暂停可加 `--no-pause`。
 - 需要排障时可加 `--debug`，输出关键变量、选项解析、WSL 命令返回码。

@@ -11,6 +11,9 @@ set "TARGET_LTS="
 set "SKIP_PRE_UPGRADE_BACKUP=0"
 set "AUTO_PAUSE=1"
 set "DEBUG=0"
+set "PRESERVE_CURRENT=1"
+set "UPGRADE_CLONE_NAME="
+set "UPGRADE_CLONE_PATH="
 set "HELP_ONLY=0"
 set "RET=0"
 
@@ -72,8 +75,36 @@ if /I "%~1"=="--target-lts" (
     shift
     goto parse_args
 )
+if /I "%~1"=="--target-tls" (
+    set "TARGET_LTS=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--upgrade-clone-name" (
+    set "UPGRADE_CLONE_NAME=%~2"
+    shift
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--upgrade-clone-path" (
+    set "UPGRADE_CLONE_PATH=%~2"
+    shift
+    shift
+    goto parse_args
+)
 if /I "%~1"=="--skip-pre-upgrade-backup" (
     set "SKIP_PRE_UPGRADE_BACKUP=1"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--in-place-upgrade" (
+    set "PRESERVE_CURRENT=0"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--preserve-current" (
+    set "PRESERVE_CURRENT=1"
     shift
     goto parse_args
 )
@@ -112,6 +143,9 @@ call :DebugKV "TARGET_LTS" "%TARGET_LTS%"
 call :DebugKV "SKIP_PRE_UPGRADE_BACKUP" "%SKIP_PRE_UPGRADE_BACKUP%"
 call :DebugKV "AUTO_PAUSE" "%AUTO_PAUSE%"
 call :DebugKV "DEBUG" "%DEBUG%"
+call :DebugKV "PRESERVE_CURRENT" "%PRESERVE_CURRENT%"
+call :DebugKV "UPGRADE_CLONE_NAME" "%UPGRADE_CLONE_NAME%"
+call :DebugKV "UPGRADE_CLONE_PATH" "%UPGRADE_CLONE_PATH%"
 
 where wsl.exe >nul 2>nul
 if errorlevel 1 (
@@ -164,7 +198,12 @@ echo   --backup-file ^<specific .tar file to restore^>
 echo   --restore-as ^<new distro name when restore^>
 echo   --install-path ^<path used by wsl --import^>
 echo   --target-lts ^<20.04^|22.04^|24.04...^>
+echo   --target-tls ^<alias of --target-lts^>
 echo   --skip-pre-upgrade-backup
+echo   --preserve-current
+echo   --in-place-upgrade
+echo   --upgrade-clone-name ^<new distro name for safe upgrade clone^>
+echo   --upgrade-clone-path ^<install path for safe upgrade clone^>
 echo   --no-pause
 echo   --debug
 echo.
@@ -173,6 +212,7 @@ echo   wsl_automation.bat
 echo   wsl_automation.bat backup --distro Ubuntu --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat restore --backup-dir "D:\WSLBackups"
 echo   wsl_automation.bat upgrade --distro Ubuntu --target-lts 24.04 --backup-dir "D:\WSLBackups"
+echo   wsl_automation.bat upgrade --distro Ubuntu-20.04 --target-lts 22.04 --preserve-current
 echo   wsl_automation.bat backup --debug
 if "%HELP_ONLY%"=="1" (
     set "RET=0"
@@ -467,6 +507,77 @@ if not exist "%INSTALL_PATH%" (
 )
 exit /b 0
 
+:BuildUpgradeCloneInfo
+if defined UPGRADE_CLONE_NAME (
+    set "CLONE_DISTRO=%UPGRADE_CLONE_NAME%"
+) else (
+    call :GetTimestampCompact CLONE_TS
+    if errorlevel 1 set "CLONE_TS=clone"
+    set "CLONE_TAG=%TARGET_LTS%"
+    if not defined CLONE_TAG set "CLONE_TAG=next"
+    set "CLONE_TAG=%CLONE_TAG:.=%"
+    set "CLONE_DISTRO=!DISTRO!-lts!CLONE_TAG!-!CLONE_TS!"
+)
+if defined UPGRADE_CLONE_PATH (
+    set "CLONE_INSTALL_PATH=%UPGRADE_CLONE_PATH%"
+) else (
+    set "CLONE_INSTALL_PATH=%LOCALAPPDATA%\WSL\Distros\!CLONE_DISTRO!"
+)
+call :DebugKV "BuildUpgradeCloneInfo.clone_distro" "%CLONE_DISTRO%"
+call :DebugKV "BuildUpgradeCloneInfo.clone_install_path" "%CLONE_INSTALL_PATH%"
+exit /b 0
+
+:EnsureUpgradeCloneTargetReady
+set "CLONE_EXISTS="
+call :ListDistros
+for /l %%i in (1,1,!DISTRO_COUNT!) do (
+    if /I "!DISTRO_%%i!"=="%CLONE_DISTRO%" set "CLONE_EXISTS=1"
+)
+if defined CLONE_EXISTS (
+    echo.
+    echo ERROR: Upgrade clone distro already exists: "%CLONE_DISTRO%"
+    echo Use --upgrade-clone-name to provide a different name.
+    exit /b 1
+)
+
+if not exist "%CLONE_INSTALL_PATH%" (
+    mkdir "%CLONE_INSTALL_PATH%" >nul 2>nul
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Cannot create clone install path "%CLONE_INSTALL_PATH%".
+        exit /b 1
+    )
+) else (
+    dir /b "%CLONE_INSTALL_PATH%" 2>nul | findstr . >nul
+    if not errorlevel 1 (
+        echo.
+        echo ERROR: Clone install path is not empty: "%CLONE_INSTALL_PATH%"
+        echo Use --upgrade-clone-path to provide an empty directory.
+        exit /b 1
+    )
+)
+exit /b 0
+
+:ImportBackupAsUpgradeClone
+if not exist "%ARCHIVE_PATH%" (
+    echo.
+    echo ERROR: Backup archive for clone import not found: "%ARCHIVE_PATH%"
+    exit /b 1
+)
+echo.
+echo ==== Create upgrade clone ====
+echo Importing backup "%ARCHIVE_PATH%" as "%CLONE_DISTRO%"...
+wsl.exe --import "%CLONE_DISTRO%" "%CLONE_INSTALL_PATH%" "%ARCHIVE_PATH%" --version 2
+set "CLONE_IMPORT_RC=%errorlevel%"
+call :DebugKV "ImportBackupAsUpgradeClone.rc" "%CLONE_IMPORT_RC%"
+if not "%CLONE_IMPORT_RC%"=="0" (
+    echo.
+    echo ERROR: Failed to import upgrade clone, exit code %CLONE_IMPORT_RC%.
+    exit /b 1
+)
+echo Upgrade clone created: %CLONE_DISTRO%
+exit /b 0
+
 :RunWslRoot
 set "WSL_CMD=%~1"
 call :DebugKV "RunWslRoot.distro" "%DISTRO%"
@@ -575,6 +686,42 @@ call :Debug "ActionUpgrade: start"
 call :ResolveDistro
 if errorlevel 1 exit /b 1
 
+set "UPGRADE_SOURCE_DISTRO=%DISTRO%"
+set "UPGRADE_SKIP_BACKUP=%SKIP_PRE_UPGRADE_BACKUP%"
+call :DebugKV "ActionUpgrade.source_distro" "%UPGRADE_SOURCE_DISTRO%"
+call :DebugKV "ActionUpgrade.preserve_current" "%PRESERVE_CURRENT%"
+
+if "%PRESERVE_CURRENT%"=="1" (
+    call :AssertUbuntuDistro
+    if errorlevel 1 exit /b 1
+
+    if not defined BACKUP_DIR (
+        set /p "BACKUP_DIR=Backup directory for preserved source [%USERPROFILE%\WSL-Backups]: "
+    )
+    if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
+    call :DebugKV "ActionUpgrade.preserve.backup_dir" "!BACKUP_DIR!"
+    if "%UPGRADE_SKIP_BACKUP%"=="1" (
+        echo.
+        echo INFO: --skip-pre-upgrade-backup ignored because --preserve-current requires backup.
+    )
+
+    call :BackupCurrentDistro
+    if errorlevel 1 exit /b 1
+
+    call :BuildUpgradeCloneInfo
+    if errorlevel 1 exit /b 1
+    call :EnsureUpgradeCloneTargetReady
+    if errorlevel 1 exit /b 1
+    call :ImportBackupAsUpgradeClone
+    if errorlevel 1 exit /b 1
+
+    set "DISTRO=!CLONE_DISTRO!"
+    set "UPGRADE_SKIP_BACKUP=1"
+    echo.
+    echo Source distro preserved: !UPGRADE_SOURCE_DISTRO!
+    echo Upgrade will run on clone: !DISTRO!
+)
+
 call :AssertUbuntuDistro
 if errorlevel 1 exit /b 1
 
@@ -587,7 +734,7 @@ if errorlevel 1 (
 echo Current Ubuntu version: %UBUNTU_VERSION%
 call :DebugKV "ActionUpgrade.current_version" "%UBUNTU_VERSION%"
 
-if "%SKIP_PRE_UPGRADE_BACKUP%"=="0" (
+if "%UPGRADE_SKIP_BACKUP%"=="0" (
     if not defined BACKUP_DIR (
         set /p "BACKUP_DIR=Pre-upgrade backup directory [%USERPROFILE%\WSL-Backups]: "
     )
