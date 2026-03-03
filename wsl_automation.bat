@@ -138,6 +138,16 @@ goto show_help
 
 :args_done
 if not defined ACTION set "ACTION=menu"
+if defined TARGET_LTS call :NormalizeSimpleVar TARGET_LTS
+if defined DISTRO (
+    call :CanonicalizeDistro
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Distro "%DISTRO%" not found.
+        set "RET=1"
+        goto script_end
+    )
+)
 call :DebugKV "ACTION" "%ACTION%"
 call :DebugKV "DISTRO" "%DISTRO%"
 call :DebugKV "BACKUP_DIR" "%BACKUP_DIR%"
@@ -256,6 +266,24 @@ if not "%DEBUG%"=="1" exit /b 0
 echo [DEBUG] %~1=%~2
 exit /b 0
 
+:NormalizeSimpleVar
+set "NV_NAME=%~1"
+if not defined NV_NAME exit /b 1
+call set "NV_VALUE=%%%NV_NAME%%%"
+if not defined NV_VALUE exit /b 0
+for /f "usebackq delims=" %%n in (`powershell -NoProfile -Command "$s=$env:NV_VALUE; if($null -eq $s){''} else { ($s -replace [char]0,'').Trim() }"`) do set "%NV_NAME%=%%n"
+exit /b 0
+
+:CanonicalizeDistro
+if not defined DISTRO exit /b 1
+call :NormalizeSimpleVar DISTRO
+set "CANONICAL_DISTRO="
+for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $target=$env:DISTRO; if(-not $target){exit 0}; $target=($target -replace [char]0,'').Trim(); $items=wsl.exe -l -q | ForEach-Object { ($_.ToString() -replace [char]0,'').Trim() } | Where-Object { $_ }; $m=$items | Where-Object { $_.Equals($target,[System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1; if($m){$m}"`) do set "CANONICAL_DISTRO=%%d"
+if not defined CANONICAL_DISTRO exit /b 1
+set "DISTRO=%CANONICAL_DISTRO%"
+call :DebugKV "CanonicalizeDistro" "%DISTRO%"
+exit /b 0
+
 :NormalizeBackupDir
 if not defined BACKUP_DIR set "BACKUP_DIR=%USERPROFILE%\WSL-Backups"
 exit /b 0
@@ -316,23 +344,21 @@ if !IDXN! LSS 1 goto choose_distro
 if !IDXN! GTR !DISTRO_COUNT! goto choose_distro
 call set "DISTRO=%%DISTRO_%IDXN%%%"
 if not defined DISTRO goto choose_distro
+call :CanonicalizeDistro
+if errorlevel 1 goto choose_distro
 call :DebugKV "ResolveDistro.selected_index" "%IDXN%"
 call :DebugKV "ResolveDistro.selected_name" "%DISTRO%"
 exit /b 0
 
 :validate_distro
-call :ListDistros
-set "FOUND="
-for /l %%i in (1,1,!DISTRO_COUNT!) do (
-    if /I "!DISTRO_%%i!"=="%DISTRO%" set "FOUND=1"
-)
-call :DebugKV "ResolveDistro.validate_name" "%DISTRO%"
-call :DebugKV "ResolveDistro.validate_found" "%FOUND%"
-if not defined FOUND (
+call :CanonicalizeDistro
+if errorlevel 1 (
     echo.
     echo ERROR: Distro "%DISTRO%" not found.
     exit /b 1
 )
+call :DebugKV "ResolveDistro.validate_name" "%DISTRO%"
+call :DebugKV "ResolveDistro.validate_found" "1"
 exit /b 0
 
 :BackupCurrentDistro
@@ -587,31 +613,44 @@ exit /b 0
 
 :RunWslRoot
 set "WSL_CMD=%~1"
+call :CanonicalizeDistro
+if errorlevel 1 (
+    echo.
+    echo ERROR: Distro "%DISTRO%" not found before root command.
+    exit /b 1
+)
 call :DebugKV "RunWslRoot.distro" "%DISTRO%"
-wsl.exe -d "%DISTRO%" -u root -- bash -lc "%WSL_CMD%"
+wsl.exe --distribution "%DISTRO%" --user root -- bash -lc "%WSL_CMD%"
 set "WSL_RC=%errorlevel%"
 call :DebugKV "RunWslRoot.rc" "%WSL_RC%"
-exit /b %WSL_RC%
+if "%WSL_RC%"=="0" exit /b 0
+exit /b 1
 
 :GetUbuntuVersion
 set "UBUNTU_VERSION="
+call :CanonicalizeDistro
+if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi" 2^>nul') do set "UBUNTU_VERSION=%%v"
+for /f "delims=" %%v in ('wsl.exe --distribution "%DISTRO%" -- bash -lc "if command -v lsb_release >/dev/null 2>&1; then lsb_release -rs; else . /etc/os-release; echo ${VERSION_ID}; fi" 2^>nul') do set "UBUNTU_VERSION=%%v"
+call :NormalizeSimpleVar UBUNTU_VERSION
 call :DebugKV "GetUbuntuVersion.value" "%UBUNTU_VERSION%"
 if not defined UBUNTU_VERSION exit /b 1
+echo %UBUNTU_VERSION% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to parse Ubuntu version from distro "%DISTRO%".
+    exit /b 1
+)
 exit /b 0
 
 :AssertUbuntuDistro
 set "UBUNTU_ID="
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $d=$env:DISTRO; $id=(wsl.exe -d $d -u root -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null | Select-Object -First 1); if(-not $id){ $id=(wsl.exe -d $d -- bash -lc '. /etc/os-release 2>/dev/null; echo ${ID}' 2>$null | Select-Object -First 1) }; if($id){ ($id.ToString() -replace [char]0,'').Trim().ToLower() }"`) do set "UBUNTU_ID=%%i"
+call :CanonicalizeDistro
+if errorlevel 1 exit /b 1
+for /f "delims=" %%i in ('wsl.exe --distribution "%DISTRO%" -- bash -lc ". /etc/os-release 2>/dev/null; echo ${ID}" 2^>nul') do set "UBUNTU_ID=%%i"
+call :NormalizeSimpleVar UBUNTU_ID
 call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
 if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
-
-REM Fallback for environments where os-release probing fails unexpectedly.
-if /I "%DISTRO:~0,6%"=="Ubuntu" (
-    call :Debug "AssertUbuntuDistro fallback matched distro name prefix"
-    exit /b 0
-)
 
 echo.
 echo ERROR: Distro "%DISTRO%" is not Ubuntu.
@@ -628,8 +667,15 @@ exit /b 0
 :RunReleaseUpgradeOnce
 echo.
 echo ==== Run do-release-upgrade ====
+call :CanonicalizeDistro
+if errorlevel 1 (
+    echo.
+    echo ERROR: Distro "%DISTRO%" not found before do-release-upgrade.
+    set "%~1=1"
+    exit /b 0
+)
 call :DebugKV "RunReleaseUpgradeOnce.distro" "%DISTRO%"
-wsl.exe -d "%DISTRO%" -u root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
+wsl.exe --distribution "%DISTRO%" --user root -- bash -lc "export DEBIAN_FRONTEND=noninteractive; export RELEASE_UPGRADER_NO_SCREEN=1; do-release-upgrade -m server -f DistUpgradeViewNonInteractive"
 set "UPGRADE_EXIT_CODE=%errorlevel%"
 call :DebugKV "RunReleaseUpgradeOnce.rc" "%UPGRADE_EXIT_CODE%"
 wsl.exe --terminate "%DISTRO%" >nul 2>nul
@@ -787,6 +833,7 @@ exit /b 1
 
 :after_prepare
 if not defined TARGET_LTS goto one_step_upgrade
+call :NormalizeSimpleVar TARGET_LTS
 
 echo %TARGET_LTS% | findstr /r "^[0-9][0-9]\.04$" >nul
 if errorlevel 1 (
