@@ -696,7 +696,7 @@ set "UBUNTU_VERSION="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
 call :DebugKV "GetUbuntuVersion.distro" "%DISTRO%"
-for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc ". /etc/os-release 2>/dev/null; echo ${VERSION_ID}" 2^>nul') do set "UBUNTU_VERSION=%%v"
+for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "grep '^VERSION_ID=' /etc/os-release 2>/dev/null | head -n 1 | cut -d= -f2 | tr -d '\"'" 2^>nul') do set "UBUNTU_VERSION=%%v"
 if not defined UBUNTU_VERSION (
     for /f "delims=" %%v in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "lsb_release -rs 2>/dev/null" 2^>nul') do set "UBUNTU_VERSION=%%v"
 )
@@ -721,17 +721,14 @@ exit /b 0
 set "UBUNTU_ID="
 call :CanonicalizeDistro
 if errorlevel 1 exit /b 1
-for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc ". /etc/os-release 2>/dev/null; echo ${ID}" 2^>nul') do set "UBUNTU_ID=%%i"
-call :NormalizeSimpleVar UBUNTU_ID
-call :StripOuterQuotes UBUNTU_ID
-call :NormalizeSimpleVar UBUNTU_ID
-if defined UBUNTU_ID for /f "delims=" %%i in ('powershell -NoProfile -Command "$x=[string]$env:UBUNTU_ID; $x.ToLower()"') do set "UBUNTU_ID=%%i"
-call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
-if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
 if /I "%DISTRO:~0,6%"=="Ubuntu" (
     call :Debug "AssertUbuntuDistro fallback matched distro name prefix"
     exit /b 0
 )
+for /f "delims=" %%i in ('wsl.exe -d "%DISTRO%" -u root -- bash -lc "grep '^ID=' /etc/os-release 2>/dev/null | head -n 1 | cut -d= -f2 | tr -d '\"' | tr 'A-Z' 'a-z'" 2^>nul') do set "UBUNTU_ID=%%i"
+call :NormalizeSimpleVar UBUNTU_ID
+call :DebugKV "AssertUbuntuDistro.id" "%UBUNTU_ID%"
+if /I "%UBUNTU_ID%"=="ubuntu" exit /b 0
 
 echo.
 echo ERROR: Distro "%DISTRO%" is not Ubuntu or os-release cannot be read.
