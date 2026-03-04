@@ -223,14 +223,35 @@ function Get-WslForeignArchitectures {
     return @($arches)
 }
 
-function Get-WslInstalledPackageArchitectures {
-    param([string]$Distro)
-    $result = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command 'dpkg-query -W -f=''${Architecture}\n'' 2>/dev/null'
-    if ($result.Code -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
+function Get-WslPackagesForArchitecture {
+    param(
+        [string]$Distro,
+        [string]$Architecture
+    )
+    if ([string]::IsNullOrWhiteSpace($Architecture)) {
         return @()
     }
-    $arches = $result.Text -split "`r?`n" | ForEach-Object { Normalize-Token -Text $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    return @($arches)
+    $pattern = "*:$Architecture"
+    $cmd = "dpkg -l '{0}' 2>/dev/null" -f $pattern
+    $result = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command $cmd
+    if ([string]::IsNullOrWhiteSpace($result.Text)) {
+        return @()
+    }
+    $lines = @()
+    foreach ($raw in ($result.Text -split "`r?`n")) {
+        $line = Normalize-Token -Text $raw
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line -notmatch "^[a-z][a-z]\s+") { continue }
+        $parts = @($line -split "\s+")
+        if ($parts.Count -lt 2) { continue }
+        $status = $parts[0]
+        $pkg = $parts[1]
+        if ($pkg -notlike "*:$Architecture") { continue }
+        # state=not-installed (second char n) usually does not block remove-architecture
+        if ($status.Length -ge 2 -and $status[1] -eq 'n') { continue }
+        $lines += ("{0}`t{1}" -f $pkg, $status)
+    }
+    return @($lines)
 }
 
 function Ensure-ReleaseUpgradeArchitectureState {
@@ -245,21 +266,56 @@ function Ensure-ReleaseUpgradeArchitectureState {
     }
     Write-Host ("Foreign architectures: {0}" -f ($foreign -join ", "))
 
-    $installedArchitectures = @(Get-WslInstalledPackageArchitectures -Distro $Distro)
     foreach ($arch in $foreign) {
         if ($arch -notmatch "^[a-z0-9][a-z0-9_-]*$") {
             throw "Unexpected architecture token '$arch'."
         }
-        $count = @($installedArchitectures | Where-Object { $_.Equals($arch, [System.StringComparison]::OrdinalIgnoreCase) }).Count
-        if ($count -gt 0) {
+        $archPackages = @(Get-WslPackagesForArchitecture -Distro $Distro -Architecture $arch)
+        if ($archPackages.Count -gt 0) {
+            $preview = ($archPackages | Select-Object -First 12) -join "`n  "
+            $suffix = if ($archPackages.Count -gt 12) { "`n  ... (+$($archPackages.Count - 12) more)" } else { "" }
             $hint = @"
-Foreign architecture '$arch' has $count installed package(s), which can break do-release-upgrade.
-Please purge '*:$arch' packages in this distro first, then retry the upgrade.
+Foreign architecture '$arch' is still in use by package database ($($archPackages.Count) entries).
+Examples:
+  $preview$suffix
+
+Please clean packages for this architecture, then retry:
+  apt-get purge '*:$arch'
+  apt-get autoremove -y
+  dpkg --remove-architecture $arch
 "@
             throw $hint.Trim()
         }
         Write-Host "Removing unused foreign architecture: $arch"
-        Invoke-WslLive -Distro $Distro -AsRoot -Command ("dpkg --remove-architecture {0}" -f $arch)
+        $remove = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command ("dpkg --remove-architecture {0}" -f $arch)
+        if ($remove.Code -ne 0) {
+            $archPackagesAfterFailure = @(Get-WslPackagesForArchitecture -Distro $Distro -Architecture $arch)
+            if ($archPackagesAfterFailure.Count -gt 0) {
+                $preview = ($archPackagesAfterFailure | Select-Object -First 12) -join "`n  "
+                $suffix = if ($archPackagesAfterFailure.Count -gt 12) { "`n  ... (+$($archPackagesAfterFailure.Count - 12) more)" } else { "" }
+                $hint = @"
+Cannot remove foreign architecture '$arch' because package database still references it ($($archPackagesAfterFailure.Count) entries).
+Examples:
+  $preview$suffix
+
+Please clean packages for this architecture, then retry:
+  apt-get purge '*:$arch'
+  apt-get autoremove -y
+  dpkg --remove-architecture $arch
+"@
+                throw $hint.Trim()
+            }
+            $fallbackHint = @"
+Failed to remove foreign architecture '$arch': $($remove.Text)
+
+Please inspect and clean architecture packages manually:
+  dpkg -l '*:$arch'
+  apt-get purge '*:$arch'
+  apt-get autoremove -y
+  dpkg --remove-architecture $arch
+"@
+            throw $fallbackHint.Trim()
+        }
     }
 }
 
