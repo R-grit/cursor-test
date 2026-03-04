@@ -56,6 +56,7 @@ wsl_automation.bat backup --debug
 - 升级前会自动检查 `dpkg` 架构状态：若存在未使用的 foreign arch（如 `i386`）会自动移除，降低 `do-release-upgrade` 依赖冲突概率。
 - 若 foreign arch 仍被数据库占用，脚本会提前停止并给出 `*:i386`（或对应架构）包示例与清理命令，再重试升级，避免在长时间升级后才失败。
 - 如需脚本自动清理占用项，可加 `--auto-fix-foreign-arch`（别名 `--auto-clean-foreign-arch`）。
+- 自动清理时若遇到 foreign arch 的 essential 包，会自动重试 `apt-get ... --allow-remove-essential`（仅作用于 `*:<arch>` 清理）。
 - 可用 `--force-pre-upgrade-backup` 强制备份，或 `--skip-pre-upgrade-backup` 始终跳过备份。
 - 升级前的 WSL 导出备份用于回滚，避免误操作导致环境不可恢复。
 - 为优先保证稳定性，当前 `.bat` 走 PowerShell 稳定执行入口；复杂 clone 升级参数会回退为原地升级并给出提示。

@@ -261,7 +261,18 @@ function AutoFix-ForeignArchitecture {
         [string]$Architecture
     )
     Write-Host "Auto-fix enabled, cleaning packages for '$Architecture'..."
-    Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y '*:$Architecture'"
+    $purgeCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y '*:$Architecture'"
+    $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command $purgeCmd
+    if ($purge.Code -ne 0) {
+        $needsAllowRemoveEssential = ($purge.Text -match "(?i)allow-remove-essential") -or ($purge.Text -match "(?i)essential packages were removed")
+        if ($needsAllowRemoveEssential) {
+            Write-Host "Retrying purge with --allow-remove-essential for foreign architecture '$Architecture'..."
+            $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y --allow-remove-essential '*:$Architecture'"
+        }
+    }
+    if ($purge.Code -ne 0) {
+        throw "Auto-fix purge failed for '$Architecture': $($purge.Text)"
+    }
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get autoremove -y"
     $remaining = @(Get-WslPackagesForArchitecture -Distro $Distro -Architecture $Architecture)
     if ($remaining.Count -gt 0) {
