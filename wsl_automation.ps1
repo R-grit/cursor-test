@@ -7,7 +7,8 @@ param(
     [string]$RestoreAs,
     [string]$InstallPath,
     [string]$TargetLtsVersion,
-    [switch]$SkipPreUpgradeBackup
+    [switch]$SkipPreUpgradeBackup,
+    [switch]$AutoFixForeignArch
 )
 
 Set-StrictMode -Version Latest
@@ -254,8 +255,33 @@ function Get-WslPackagesForArchitecture {
     return @($lines)
 }
 
+function AutoFix-ForeignArchitecture {
+    param(
+        [string]$Distro,
+        [string]$Architecture
+    )
+    Write-Host "Auto-fix enabled, cleaning packages for '$Architecture'..."
+    Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y '*:$Architecture'"
+    Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get autoremove -y"
+    $remaining = @(Get-WslPackagesForArchitecture -Distro $Distro -Architecture $Architecture)
+    if ($remaining.Count -gt 0) {
+        $preview = ($remaining | Select-Object -First 12) -join "`n  "
+        $suffix = if ($remaining.Count -gt 12) { "`n  ... (+$($remaining.Count - 12) more)" } else { "" }
+        $hint = @"
+Auto-fix could not fully clean '$Architecture' package entries ($($remaining.Count) entries).
+Examples:
+  $preview$suffix
+"@
+        throw $hint.Trim()
+    }
+    Invoke-WslLive -Distro $Distro -AsRoot -Command ("dpkg --remove-architecture {0}" -f $Architecture)
+}
+
 function Ensure-ReleaseUpgradeArchitectureState {
-    param([string]$Distro)
+    param(
+        [string]$Distro,
+        [switch]$AutoFix
+    )
     Write-Section "Check package architectures"
     $native = Get-WslNativeArchitecture -Distro $Distro
     $foreign = @(Get-WslForeignArchitectures -Distro $Distro)
@@ -272,6 +298,10 @@ function Ensure-ReleaseUpgradeArchitectureState {
         }
         $archPackages = @(Get-WslPackagesForArchitecture -Distro $Distro -Architecture $arch)
         if ($archPackages.Count -gt 0) {
+            if ($AutoFix) {
+                AutoFix-ForeignArchitecture -Distro $Distro -Architecture $arch
+                continue
+            }
             $preview = ($archPackages | Select-Object -First 12) -join "`n  "
             $suffix = if ($archPackages.Count -gt 12) { "`n  ... (+$($archPackages.Count - 12) more)" } else { "" }
             $hint = @"
@@ -283,6 +313,8 @@ Please clean packages for this architecture, then retry:
   apt-get purge '*:$arch'
   apt-get autoremove -y
   dpkg --remove-architecture $arch
+Or rerun with:
+  --auto-fix-foreign-arch
 "@
             throw $hint.Trim()
         }
@@ -456,9 +488,12 @@ function Restore-WslFromBackup {
 }
 
 function Ensure-UpgradePrerequisites {
-    param([string]$Distro)
+    param(
+        [string]$Distro,
+        [switch]$AutoFixForeignArch
+    )
     Write-Section "Prepare release upgrade"
-    Ensure-ReleaseUpgradeArchitectureState -Distro $Distro
+    Ensure-ReleaseUpgradeArchitectureState -Distro $Distro -AutoFix:$AutoFixForeignArch
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get update"
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get -y upgrade"
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get -y dist-upgrade"
@@ -486,7 +521,8 @@ function Upgrade-UbuntuDistro {
         [string]$Distro,
         [string]$TargetVersion,
         [string]$BackupDir,
-        [switch]$SkipBackup
+        [switch]$SkipBackup,
+        [switch]$AutoFixForeignArch
     )
     Assert-UbuntuDistro -Distro $Distro
     $currentVersion = Get-UbuntuVersion -Distro $Distro
@@ -500,7 +536,7 @@ function Upgrade-UbuntuDistro {
         Write-Host "Skipped pre-upgrade backup."
     }
 
-    Ensure-UpgradePrerequisites -Distro $Distro
+    Ensure-UpgradePrerequisites -Distro $Distro -AutoFixForeignArch:$AutoFixForeignArch
 
     if ([string]::IsNullOrWhiteSpace($TargetVersion)) {
         $code = Invoke-OneReleaseUpgrade -Distro $Distro
@@ -568,7 +604,7 @@ function Show-Menu-And-Run {
                 $target = Read-Host "Target LTS version (optional, e.g. 24.04)"
             }
             $dir = Normalize-BackupDirectory -Dir $BackupDirectory
-            Upgrade-UbuntuDistro -Distro $distro -TargetVersion $target -BackupDir $dir -SkipBackup:$SkipPreUpgradeBackup
+            Upgrade-UbuntuDistro -Distro $distro -TargetVersion $target -BackupDir $dir -SkipBackup:$SkipPreUpgradeBackup -AutoFixForeignArch:$AutoFixForeignArch
         }
         default {
             throw "Invalid menu choice: $choice"
@@ -590,7 +626,7 @@ try {
         "upgrade" {
             $distro = Resolve-DistroName -InputName $DistroName
             $dir = Normalize-BackupDirectory -Dir $BackupDirectory
-            Upgrade-UbuntuDistro -Distro $distro -TargetVersion $TargetLtsVersion -BackupDir $dir -SkipBackup:$SkipPreUpgradeBackup
+            Upgrade-UbuntuDistro -Distro $distro -TargetVersion $TargetLtsVersion -BackupDir $dir -SkipBackup:$SkipPreUpgradeBackup -AutoFixForeignArch:$AutoFixForeignArch
         }
         "menu" {
             Show-Menu-And-Run

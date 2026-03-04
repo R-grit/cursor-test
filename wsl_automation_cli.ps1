@@ -16,6 +16,8 @@ function Show-Help {
     Write-Host "  --install-path <import path>"
     Write-Host "  --target-lts <20.04|22.04|24.04...>"
     Write-Host "  --target-tls <alias of --target-lts>"
+    Write-Host "  --auto-fix-foreign-arch"
+    Write-Host "  --auto-clean-foreign-arch (alias)"
     Write-Host "  --skip-pre-upgrade-backup"
     Write-Host "  --force-pre-upgrade-backup"
     Write-Host "  --ask-pre-upgrade-backup"
@@ -46,6 +48,7 @@ function Parse-Args {
         RestoreAs                  = $null
         InstallPath                = $null
         TargetLts                  = $null
+        AutoFixForeignArch         = $false
         SkipPreUpgradeBackup       = $false
         ForcePreUpgradeBackup      = $false
         AskPreUpgradeBackup        = $false
@@ -110,6 +113,8 @@ function Parse-Args {
                 if ($i -ge $RawArgs.Count) { throw "Missing value for --target-tls" }
                 $cfg.TargetLts = $RawArgs[$i]
             }
+            "--auto-fix-foreign-arch" { $cfg.AutoFixForeignArch = $true }
+            "--auto-clean-foreign-arch" { $cfg.AutoFixForeignArch = $true }
             "--skip-pre-upgrade-backup" {
                 $cfg.SkipPreUpgradeBackup = $true
                 $cfg.AskPreUpgradeBackup = $false
@@ -205,6 +210,7 @@ Write-DebugLine -Enabled $cfg.Debug -Name "BACKUP_FILE" -Value ([string]$cfg.Bac
 Write-DebugLine -Enabled $cfg.Debug -Name "RESTORE_AS" -Value ([string]$cfg.RestoreAs)
 Write-DebugLine -Enabled $cfg.Debug -Name "INSTALL_PATH" -Value ([string]$cfg.InstallPath)
 Write-DebugLine -Enabled $cfg.Debug -Name "TARGET_LTS" -Value ([string]$cfg.TargetLts)
+Write-DebugLine -Enabled $cfg.Debug -Name "AUTO_FIX_FOREIGN_ARCH" -Value ([string]$cfg.AutoFixForeignArch)
 Write-DebugLine -Enabled $cfg.Debug -Name "SKIP_PRE_UPGRADE_BACKUP" -Value ([string]$cfg.SkipPreUpgradeBackup)
 Write-DebugLine -Enabled $cfg.Debug -Name "FORCE_PRE_UPGRADE_BACKUP" -Value ([string]$cfg.ForcePreUpgradeBackup)
 Write-DebugLine -Enabled $cfg.Debug -Name "ASK_PRE_UPGRADE_BACKUP" -Value ([string]$cfg.AskPreUpgradeBackup)
@@ -255,6 +261,7 @@ if (-not [string]::IsNullOrWhiteSpace($cfg.BackupFile)) { $invokeArgs += @("-Bac
 if (-not [string]::IsNullOrWhiteSpace($cfg.RestoreAs)) { $invokeArgs += @("-RestoreAs", [string]$cfg.RestoreAs) }
 if (-not [string]::IsNullOrWhiteSpace($cfg.InstallPath)) { $invokeArgs += @("-InstallPath", [string]$cfg.InstallPath) }
 if (-not [string]::IsNullOrWhiteSpace($cfg.TargetLts)) { $invokeArgs += @("-TargetLtsVersion", [string]$cfg.TargetLts) }
+if ($cfg.AutoFixForeignArch) { $invokeArgs += "-AutoFixForeignArch" }
 if ($cfg.SkipPreUpgradeBackup) { $invokeArgs += "-SkipPreUpgradeBackup" }
 
 if ($cfg.Debug) {
