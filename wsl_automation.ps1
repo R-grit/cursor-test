@@ -200,6 +200,69 @@ function Assert-UbuntuDistro {
     throw "Distro '$Distro' is not Ubuntu."
 }
 
+function Get-WslNativeArchitecture {
+    param([string]$Distro)
+    $result = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "dpkg --print-architecture 2>/dev/null"
+    if ($result.Code -ne 0) {
+        throw "Failed to detect native package architecture."
+    }
+    $native = $result.Text -split "`r?`n" | ForEach-Object { Normalize-Token -Text $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($native)) {
+        throw "Native package architecture is empty."
+    }
+    return [string]$native
+}
+
+function Get-WslForeignArchitectures {
+    param([string]$Distro)
+    $result = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "dpkg --print-foreign-architectures 2>/dev/null"
+    if ($result.Code -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
+        return @()
+    }
+    $arches = $result.Text -split "`r?`n" | ForEach-Object { Normalize-Token -Text $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    return @($arches)
+}
+
+function Get-WslInstalledPackageArchitectures {
+    param([string]$Distro)
+    $result = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command 'dpkg-query -W -f=''${Architecture}\n'' 2>/dev/null'
+    if ($result.Code -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
+        return @()
+    }
+    $arches = $result.Text -split "`r?`n" | ForEach-Object { Normalize-Token -Text $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    return @($arches)
+}
+
+function Ensure-ReleaseUpgradeArchitectureState {
+    param([string]$Distro)
+    Write-Section "Check package architectures"
+    $native = Get-WslNativeArchitecture -Distro $Distro
+    $foreign = @(Get-WslForeignArchitectures -Distro $Distro)
+    Write-Host "Native architecture: $native"
+    if ($foreign.Count -eq 0) {
+        Write-Host "No foreign architecture found."
+        return
+    }
+    Write-Host ("Foreign architectures: {0}" -f ($foreign -join ", "))
+
+    $installedArchitectures = @(Get-WslInstalledPackageArchitectures -Distro $Distro)
+    foreach ($arch in $foreign) {
+        if ($arch -notmatch "^[a-z0-9][a-z0-9_-]*$") {
+            throw "Unexpected architecture token '$arch'."
+        }
+        $count = @($installedArchitectures | Where-Object { $_.Equals($arch, [System.StringComparison]::OrdinalIgnoreCase) }).Count
+        if ($count -gt 0) {
+            $hint = @"
+Foreign architecture '$arch' has $count installed package(s), which can break do-release-upgrade.
+Please purge '*:$arch' packages in this distro first, then retry the upgrade.
+"@
+            throw $hint.Trim()
+        }
+        Write-Host "Removing unused foreign architecture: $arch"
+        Invoke-WslLive -Distro $Distro -AsRoot -Command ("dpkg --remove-architecture {0}" -f $arch)
+    }
+}
+
 function Backup-WslDistro {
     param(
         [string]$Distro,
@@ -339,6 +402,7 @@ function Restore-WslFromBackup {
 function Ensure-UpgradePrerequisites {
     param([string]$Distro)
     Write-Section "Prepare release upgrade"
+    Ensure-ReleaseUpgradeArchitectureState -Distro $Distro
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get update"
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get -y upgrade"
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get -y dist-upgrade"
