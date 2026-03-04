@@ -65,5 +65,6 @@ wsl_automation.bat backup --debug
 - 恢复使用 `wsl --import`，导入后默认用户可能是 root，可按需再设置。
 - 脚本执行结束会显示返回码并暂停，方便查看结果；如需关闭暂停可加 `--no-pause`。
 - 需要排障时可加 `--debug`，输出关键变量、选项解析、WSL 命令返回码。
+- 脚本每次运行会打印 BAT/CLI/Core 版本与当前 Git 提交短哈希，便于确认是否已拉取到最新修复。
 - 为兼容不同 `cmd` 代码页，`.bat` 内文案已使用纯 ASCII，避免编码导致的解析异常。
 - 已添加 `.gitattributes` 强制 `.bat/.cmd` 在 Windows 检出为 CRLF，减少 `call :label` 异常。

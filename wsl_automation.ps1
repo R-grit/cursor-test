@@ -13,6 +13,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$CoreRunnerVersion = "ps-core-2"
+$CoreRunnerCommit = if ([string]::IsNullOrWhiteSpace($env:WSL_AUTOMATION_COMMIT)) { "unknown" } else { $env:WSL_AUTOMATION_COMMIT }
 
 function Write-Section {
     param([string]$Title)
@@ -287,17 +289,14 @@ function AutoFix-ForeignArchitecture {
     $purgeCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y '*:$Architecture'"
     $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command $purgeCmd
     if ($purge.Code -ne 0) {
-        $needsAllowRemoveEssential = ($purge.Text -match "(?i)allow-remove-essential") -or ($purge.Text -match "(?i)essential packages were removed")
-        if ($needsAllowRemoveEssential -or $packageNames.Count -gt 0) {
-            Write-Host "Retrying purge with --allow-remove-essential for foreign architecture '$Architecture'..."
-            $retryCmd = $null
-            if ($packageNames.Count -gt 0) {
-                $pkgArgs = ($packageNames | ForEach-Object { "'$_'" }) -join " "
-                $retryCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get -y --allow-remove-essential -o APT::Get::allow-remove-essential=true purge $pkgArgs"
-            }
-            else {
-                $retryCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get -y --allow-remove-essential -o APT::Get::allow-remove-essential=true purge '*:$Architecture'"
-            }
+        Write-Host "Initial purge failed, retrying with --allow-remove-essential..."
+        $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y --allow-remove-essential -o APT::Get::allow-remove-essential=true '*:$Architecture'"
+    }
+    if ($purge.Code -ne 0 -and $packageNames.Count -gt 0) {
+        Write-Host "Retrying purge with explicit package list for '$Architecture'..."
+        $pkgArgs = ($packageNames | ForEach-Object { "'$_'" }) -join " "
+        if (-not [string]::IsNullOrWhiteSpace($pkgArgs)) {
+            $retryCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get -y --allow-remove-essential -o APT::Get::allow-remove-essential=true purge $pkgArgs"
             $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command $retryCmd
         }
     }
@@ -657,6 +656,8 @@ function Show-Menu-And-Run {
         }
     }
 }
+
+Write-Host ("[INFO] CORE_RUNNER_VERSION={0} COMMIT={1}" -f $CoreRunnerVersion, $CoreRunnerCommit)
 
 try {
     switch ($Action) {

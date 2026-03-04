@@ -1,6 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$RunnerVersion = "ps-cli-1"
+$RunnerVersion = "ps-cli-2"
+$RunnerCommit = if ([string]::IsNullOrWhiteSpace($env:WSL_AUTOMATION_COMMIT)) { "unknown" } else { $env:WSL_AUTOMATION_COMMIT }
 
 function Show-Help {
     Write-Host ""
@@ -204,6 +205,7 @@ if ($cfg.Action -eq "menu") {
 
 Write-DebugLine -Enabled $cfg.Debug -Name "ACTION" -Value ([string]$cfg.Action)
 Write-DebugLine -Enabled $cfg.Debug -Name "CLI_RUNNER_VERSION" -Value $RunnerVersion
+Write-Host ("[INFO] CLI_RUNNER_VERSION={0} COMMIT={1}" -f $RunnerVersion, $RunnerCommit)
 Write-DebugLine -Enabled $cfg.Debug -Name "DISTRO" -Value ([string]$cfg.Distro)
 Write-DebugLine -Enabled $cfg.Debug -Name "BACKUP_DIR" -Value ([string]$cfg.BackupDir)
 Write-DebugLine -Enabled $cfg.Debug -Name "BACKUP_FILE" -Value ([string]$cfg.BackupFile)
