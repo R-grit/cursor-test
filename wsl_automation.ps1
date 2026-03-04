@@ -255,23 +255,58 @@ function Get-WslPackagesForArchitecture {
     return @($lines)
 }
 
+function Get-WslPackageNamesForArchitecture {
+    param(
+        [string]$Distro,
+        [string]$Architecture
+    )
+    $entries = @(Get-WslPackagesForArchitecture -Distro $Distro -Architecture $Architecture)
+    if ($entries.Count -eq 0) {
+        return @()
+    }
+    $names = @()
+    foreach ($entry in $entries) {
+        $parts = @($entry -split "`t", 2)
+        if ($parts.Count -ge 1) {
+            $name = Normalize-Token -Text $parts[0]
+            if (-not [string]::IsNullOrWhiteSpace($name)) {
+                $names += $name
+            }
+        }
+    }
+    return @($names)
+}
+
 function AutoFix-ForeignArchitecture {
     param(
         [string]$Distro,
         [string]$Architecture
     )
     Write-Host "Auto-fix enabled, cleaning packages for '$Architecture'..."
+    $packageNames = @(Get-WslPackageNamesForArchitecture -Distro $Distro -Architecture $Architecture)
     $purgeCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y '*:$Architecture'"
     $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command $purgeCmd
     if ($purge.Code -ne 0) {
         $needsAllowRemoveEssential = ($purge.Text -match "(?i)allow-remove-essential") -or ($purge.Text -match "(?i)essential packages were removed")
-        if ($needsAllowRemoveEssential) {
+        if ($needsAllowRemoveEssential -or $packageNames.Count -gt 0) {
             Write-Host "Retrying purge with --allow-remove-essential for foreign architecture '$Architecture'..."
-            $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "export DEBIAN_FRONTEND=noninteractive; apt-get purge -y --allow-remove-essential '*:$Architecture'"
+            $retryCmd = $null
+            if ($packageNames.Count -gt 0) {
+                $pkgArgs = ($packageNames | ForEach-Object { "'$_'" }) -join " "
+                $retryCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get -y --allow-remove-essential -o APT::Get::allow-remove-essential=true purge $pkgArgs"
+            }
+            else {
+                $retryCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get -y --allow-remove-essential -o APT::Get::allow-remove-essential=true purge '*:$Architecture'"
+            }
+            $purge = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command $retryCmd
         }
     }
     if ($purge.Code -ne 0) {
         throw "Auto-fix purge failed for '$Architecture': $($purge.Text)"
+    }
+    $fixInstall = Invoke-WslCapture -Distro $Distro -AsRoot -AllowFailure -Command "export DEBIAN_FRONTEND=noninteractive; apt-get -y -f install"
+    if ($fixInstall.Code -ne 0) {
+        throw "Auto-fix dependency repair failed for '$Architecture': $($fixInstall.Text)"
     }
     Invoke-WslLive -Distro $Distro -AsRoot -Command "export DEBIAN_FRONTEND=noninteractive; apt-get autoremove -y"
     $remaining = @(Get-WslPackagesForArchitecture -Distro $Distro -Architecture $Architecture)
